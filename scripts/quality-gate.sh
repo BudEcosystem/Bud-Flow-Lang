@@ -152,6 +152,7 @@ print_section "Discovering Source Files"
 CPP_FILES=$(find "$PROJECT_ROOT" \
     -type f \( -name "*.cpp" -o -name "*.cc" -o -name "*.cxx" -o -name "*.h" -o -name "*.hpp" -o -name "*.hxx" \) \
     ! -path "*/build/*" \
+    ! -path "*/build_*/*" \
     ! -path "*/_deps/*" \
     ! -path "*/extern/*" \
     ! -path "*/.git/*" \
@@ -231,8 +232,9 @@ else
 fi
 
 # Check for compiler warnings (treat as errors in strict mode)
-WARNING_COUNT=$(grep -c "warning:" /tmp/build_output.txt 2>/dev/null || echo "0")
-if [ "$WARNING_COUNT" -gt 0 ]; then
+WARNING_COUNT=$(grep -c "warning:" /tmp/build_output.txt 2>/dev/null | head -1 || echo "0")
+WARNING_COUNT=${WARNING_COUNT:-0}
+if [ "$WARNING_COUNT" -gt 0 ] 2>/dev/null; then
     check_warn "Build produced $WARNING_COUNT compiler warnings"
     grep "warning:" /tmp/build_output.txt | head -10 | sed 's/^/    /'
 else
