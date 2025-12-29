@@ -167,7 +167,9 @@ check_info "Found $FILE_COUNT C++ files to check"
 print_section "Stage 1: Code Formatting (clang-format)"
 
 FORMAT_ERRORS=0
-if [ "$FIX_MODE" = true ]; then
+if ! command -v clang-format >/dev/null 2>&1; then
+    check_warn "clang-format not installed - skipping (CI will verify formatting)"
+elif [ "$FIX_MODE" = true ]; then
     check_info "Auto-fixing formatting issues..."
     echo "$CPP_FILES" | xargs -P $(nproc) clang-format -i --style=file 2>/dev/null || true
     check_pass "Formatting auto-fixed"
@@ -177,7 +179,7 @@ else
     for file in $CPP_FILES; do
         if ! clang-format --style=file --dry-run --Werror "$file" 2>/dev/null; then
             check_fail "Formatting error: $file"
-            ((FORMAT_ERRORS++))
+            FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
             if [ $FORMAT_ERRORS -ge 5 ]; then
                 check_warn "Showing first 5 formatting errors only..."
                 break
