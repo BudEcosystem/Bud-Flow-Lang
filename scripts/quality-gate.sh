@@ -132,7 +132,7 @@ MISSING_TOOLS=()
 
 command -v cmake >/dev/null 2>&1 && check_pass "cmake found" || { check_fail "cmake not found"; MISSING_TOOLS+=("cmake"); }
 command -v ninja >/dev/null 2>&1 && check_pass "ninja found" || { check_fail "ninja not found"; MISSING_TOOLS+=("ninja"); }
-command -v clang-format >/dev/null 2>&1 && check_pass "clang-format found" || { check_fail "clang-format not found"; MISSING_TOOLS+=("clang-format"); }
+command -v clang-format >/dev/null 2>&1 && check_pass "clang-format found" || { check_warn "clang-format not found (formatting check skipped, CI will verify)"; }
 command -v clang-tidy >/dev/null 2>&1 && check_pass "clang-tidy found" || { check_warn "clang-tidy not found (some checks will be skipped)"; }
 command -v cppcheck >/dev/null 2>&1 && check_pass "cppcheck found" || { check_warn "cppcheck not found (some checks will be skipped)"; }
 
