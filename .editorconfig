@@ -1,0 +1,55 @@
+# EditorConfig for Bud Flow Lang
+# https://editorconfig.org
+
+root = true
+
+# Default for all files
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# C++ source files
+[*.{cc,cpp,h,hpp,inl}]
+indent_size = 4
+max_line_length = 100
+
+# Header files in Highway style (-inl.h)
+[*-inl.h]
+indent_size = 4
+
+# CMake files
+[CMakeLists.txt]
+indent_size = 2
+
+[*.cmake]
+indent_size = 2
+
+# YAML files (CI, config)
+[*.{yml,yaml}]
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# Markdown
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = 120
+
+# Python files
+[*.py]
+indent_size = 4
+max_line_length = 88
+
+# Shell scripts
+[*.sh]
+indent_size = 2
+
+# Makefiles require tabs
+[Makefile]
+indent_style = tab

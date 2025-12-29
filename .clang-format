@@ -1,0 +1,122 @@
+---
+# Bud Flow Lang - Clang Format Configuration
+# Based on LLVM style with modifications for SIMD code readability
+
+Language: Cpp
+BasedOnStyle: LLVM
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+IndentCaseLabels: false
+IndentPPDirectives: BeforeHash
+NamespaceIndentation: None
+
+# Line Length
+ColumnLimit: 100
+
+# Braces
+BreakBeforeBraces: Attach
+Cpp11BracedListStyle: true
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+
+# Pointer/Reference alignment (LLVM style)
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Function formatting
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: All
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: true
+BinPackParameters: true
+
+# Break behavior
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+BreakStringLiterals: true
+
+# Constructor initializers
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 4
+
+# Includes
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Project headers
+  - Regex: '^"bud_flow_lang/'
+    Priority: 1
+  # Highway headers
+  - Regex: '^"hwy/'
+    Priority: 2
+  - Regex: '^<hwy/'
+    Priority: 2
+  # Third-party headers
+  - Regex: '^<(fmt|spdlog|nlohmann)/'
+    Priority: 3
+  # C++ standard library
+  - Regex: '^<[a-z_]+>'
+    Priority: 4
+  # C standard library
+  - Regex: '^<c[a-z]+>'
+    Priority: 5
+  # Other
+  - Regex: '.*'
+    Priority: 6
+SortIncludes: true
+
+# Spaces
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCpp11BracedList: false
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: true
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# Penalties (tuned for readable diffs)
+PenaltyBreakAssignment: 2
+PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyBreakComment: 300
+PenaltyBreakFirstLessLess: 120
+PenaltyBreakString: 1000
+PenaltyBreakTemplateDeclaration: 10
+PenaltyExcessCharacter: 1000000
+PenaltyReturnTypeOnItsOwnLine: 60
+
+# Modern C++ features
+Standard: c++20
+FixNamespaceComments: true
+CompactNamespaces: false
+
+# Macros that should be treated specially
+MacroBlockBegin: ''
+MacroBlockEnd: ''
+...

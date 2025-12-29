@@ -1,0 +1,430 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+  CMAKE_GENERATOR: Ninja
+
+# Cancel previous runs on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # Code Formatting - MUST pass first
+  # ==========================================================================
+  formatting:
+    name: Code Formatting
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+
+      - name: Check formatting
+        run: |
+          ERRORS=0
+          for file in $(find src include tests examples -name '*.cc' -o -name '*.h' -o -name '*.hpp' -o -name '*.cpp' 2>/dev/null); do
+            if ! clang-format-18 --dry-run --Werror "$file" 2>/dev/null; then
+              echo "::error file=$file::Formatting error in $file"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::Found $ERRORS files with formatting errors"
+            echo ""
+            echo "To fix: run 'clang-format -i <file>' or './scripts/quality-gate.sh --fix'"
+            exit 1
+          fi
+          echo "All files properly formatted"
+
+  # ==========================================================================
+  # Build and Test Matrix - Core CI
+  # ==========================================================================
+  build-and-test:
+    name: Build (${{ matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    needs: formatting  # Only run if formatting passes
+
+    strategy:
+      fail-fast: true  # Fail fast to save resources
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            compiler: clang
+            cc: clang-18
+            cxx: clang++-18
+          - os: ubuntu-24.04
+            compiler: gcc
+            cc: gcc-13
+            cxx: g++-13
+          - os: macos-14
+            compiler: clang
+            cc: clang
+            cxx: clang++
+          - os: windows-2022
+            compiler: msvc
+            cc: cl
+            cxx: cl
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache python3-dev
+
+      - name: Install Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja ccache
+
+      - name: Install Dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install ninja
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.compiler }}
+
+      - name: Configure CMake (Unix)
+        if: runner.os != 'Windows'
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DBUD_ENABLE_TESTS=ON \
+            -DBUD_ENABLE_BENCHMARKS=ON \
+            -DBUD_ENABLE_PYTHON=OFF
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -B build `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} `
+            -DBUD_ENABLE_TESTS=ON `
+            -DBUD_ENABLE_BENCHMARKS=ON `
+            -DBUD_ENABLE_PYTHON=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Check for compiler warnings
+        if: runner.os == 'Linux'
+        run: |
+          cmake --build build --parallel 2>&1 | tee build.log
+          WARNINGS=$(grep -c "warning:" build.log || echo "0")
+          if [ "$WARNINGS" -gt 0 ]; then
+            echo "::warning::Build produced $WARNINGS compiler warning(s)"
+            grep "warning:" build.log | head -20
+          fi
+
+      - name: Run Tests
+        run: |
+          cd build
+          ctest --output-on-failure --parallel 4
+
+      - name: Verify Examples Run
+        if: runner.os != 'Windows'
+        run: |
+          ./build/example_basic
+          ./build/example_vectorize
+
+  # ==========================================================================
+  # Static Analysis - REQUIRED
+  # ==========================================================================
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-24.04
+    needs: formatting
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18 clang-tidy-18 cppcheck
+
+      - name: Configure
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DBUD_ENABLE_TESTS=OFF \
+            -DBUD_ENABLE_PYTHON=OFF
+
+      - name: Run clang-tidy
+        run: |
+          ERRORS=0
+          for file in $(find src -name '*.cc' 2>/dev/null | head -30); do
+            echo "Checking $file..."
+            if ! clang-tidy-18 -p build "$file" 2>&1 | grep -q "error:"; then
+              : # OK
+            else
+              echo "::error file=$file::clang-tidy errors in $file"
+              clang-tidy-18 -p build "$file" 2>&1 | grep "error:" | head -5
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [ $ERRORS -gt 0 ]; then
+            echo "::error::clang-tidy found errors in $ERRORS file(s)"
+            exit 1
+          fi
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+            --error-exitcode=1 \
+            --suppress=missingIncludeSystem \
+            --suppress=unusedFunction \
+            --suppress=unmatchedSuppression \
+            -I include \
+            src/ 2>&1 | tee cppcheck.log
+
+          if grep -q "error:" cppcheck.log; then
+            echo "::error::cppcheck found errors"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # Sanitizers - REQUIRED (Critical for memory safety)
+  # ==========================================================================
+  sanitizers:
+    name: Sanitizer (${{ matrix.sanitizer }})
+    runs-on: ubuntu-24.04
+    needs: build-and-test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: address
+            flags: -fsanitize=address -fno-omit-frame-pointer -g
+            env_opts: "detect_leaks=1:detect_stack_use_after_return=1:abort_on_error=1"
+          - sanitizer: undefined
+            flags: -fsanitize=undefined -fno-omit-frame-pointer -g
+            env_opts: "print_stacktrace=1:halt_on_error=1"
+          - sanitizer: thread
+            flags: -fsanitize=thread -g
+            env_opts: "second_deadlock_stack=1:halt_on_error=1"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18
+
+      - name: Configure
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" \
+            -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.flags }}" \
+            -DBUD_ENABLE_TESTS=ON \
+            -DBUD_ENABLE_PYTHON=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run Tests with ${{ matrix.sanitizer }} sanitizer
+        env:
+          ASAN_OPTIONS: ${{ matrix.sanitizer == 'address' && matrix.env_opts || '' }}
+          UBSAN_OPTIONS: ${{ matrix.sanitizer == 'undefined' && matrix.env_opts || '' }}
+          TSAN_OPTIONS: ${{ matrix.sanitizer == 'thread' && matrix.env_opts || '' }}
+        run: |
+          cd build
+          timeout 300 ctest --output-on-failure || {
+            echo "::error::Tests failed with ${{ matrix.sanitizer }} sanitizer"
+            exit 1
+          }
+
+  # ==========================================================================
+  # Security Scan
+  # ==========================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-24.04
+    needs: formatting
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for secrets
+        run: |
+          ISSUES=0
+
+          # Check for hardcoded secrets
+          if grep -rE "(password|secret|api_key|private_key)\s*=\s*['\"][^'\"]+['\"]" --include="*.cc" --include="*.h" --include="*.cpp" --include="*.hpp" src/ include/ 2>/dev/null; then
+            echo "::error::Potential hardcoded secrets found"
+            ISSUES=$((ISSUES + 1))
+          fi
+
+          # Check for private keys
+          if grep -rE "-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----" --include="*.cc" --include="*.h" --include="*.cpp" --include="*.hpp" --include="*.pem" . 2>/dev/null; then
+            echo "::error::Private key found in repository"
+            ISSUES=$((ISSUES + 1))
+          fi
+
+          # Check for AWS credentials
+          if grep -rE "AKIA[0-9A-Z]{16}" . 2>/dev/null; then
+            echo "::error::AWS access key found"
+            ISSUES=$((ISSUES + 1))
+          fi
+
+          if [ $ISSUES -gt 0 ]; then
+            exit 1
+          fi
+
+          echo "No security issues found"
+
+      - name: Check for unsafe functions
+        run: |
+          UNSAFE=$(grep -rE "\b(strcpy|strcat|sprintf|gets|scanf)\s*\(" --include="*.cc" --include="*.h" --include="*.cpp" --include="*.hpp" src/ include/ 2>/dev/null | wc -l || echo "0")
+          if [ "$UNSAFE" -gt 0 ]; then
+            echo "::warning::Found $UNSAFE uses of unsafe C functions"
+            grep -rE "\b(strcpy|strcat|sprintf|gets|scanf)\s*\(" --include="*.cc" --include="*.h" src/ include/ 2>/dev/null | head -10
+          fi
+
+  # ==========================================================================
+  # Code Coverage
+  # ==========================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-24.04
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18 llvm-18 lcov
+
+      - name: Configure
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="--coverage -fprofile-arcs -ftest-coverage" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage" \
+            -DBUD_ENABLE_TESTS=ON \
+            -DBUD_ENABLE_PYTHON=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run Tests with Coverage
+        run: |
+          cd build
+          ctest --output-on-failure
+
+      - name: Generate Coverage Report
+        run: |
+          cd build
+          lcov --capture --directory . --output-file coverage.info --ignore-errors source
+          lcov --remove coverage.info '/usr/*' '_deps/*' 'tests/*' --output-file coverage.info --ignore-errors unused
+          lcov --list coverage.info
+
+      - name: Check Coverage Threshold
+        run: |
+          cd build
+          COVERAGE=$(lcov --summary coverage.info 2>&1 | grep "lines" | grep -oP '[0-9.]+%' | head -1 | tr -d '%')
+          echo "Coverage: ${COVERAGE}%"
+
+          # Warn if coverage is below 50%
+          if [ "$(echo "$COVERAGE < 50" | bc -l)" -eq 1 ]; then
+            echo "::warning::Code coverage is below 50% (${COVERAGE}%)"
+          fi
+
+  # ==========================================================================
+  # Final Status Check - Required for branch protection
+  # ==========================================================================
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-24.04
+    needs:
+      - formatting
+      - build-and-test
+      - static-analysis
+      - sanitizers
+      - security-scan
+    if: always()
+
+    steps:
+      - name: Check all jobs passed
+        run: |
+          echo "Formatting: ${{ needs.formatting.result }}"
+          echo "Build and Test: ${{ needs.build-and-test.result }}"
+          echo "Static Analysis: ${{ needs.static-analysis.result }}"
+          echo "Sanitizers: ${{ needs.sanitizers.result }}"
+          echo "Security Scan: ${{ needs.security-scan.result }}"
+
+          if [ "${{ needs.formatting.result }}" != "success" ]; then
+            echo "::error::Formatting check failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.build-and-test.result }}" != "success" ]; then
+            echo "::error::Build and test failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.static-analysis.result }}" != "success" ]; then
+            echo "::error::Static analysis failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.sanitizers.result }}" != "success" ]; then
+            echo "::error::Sanitizer checks failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.security-scan.result }}" != "success" ]; then
+            echo "::error::Security scan failed"
+            exit 1
+          fi
+
+          echo "All CI checks passed!"

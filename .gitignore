@@ -1,0 +1,94 @@
+# =============================================================================
+# Bud Flow Lang - Git Ignore
+# =============================================================================
+
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.cproject
+.settings/
+*.sublime-*
+.cache/
+
+# Compiled files
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+*.exe
+
+# Dependency directories
+_deps/
+extern/*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Test outputs
+Testing/
+*.gcov
+*.gcda
+*.gcno
+coverage/
+coverage.info
+
+# Documentation
+docs/_build/
+docs/html/
+docs/xml/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+.eggs/
+*.egg
+.Python
+venv/
+ENV/
+
+# Package files
+*.tar.gz
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.bak
+
+# Profiling
+*.prof
+perf.data*
+flamegraph.svg
+
+# Secrets (NEVER commit these)
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.json
