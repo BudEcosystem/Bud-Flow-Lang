@@ -9,12 +9,12 @@
 // Include this header for full API access.
 //
 
+#include "bud_flow_lang/arena.h"
+#include "bud_flow_lang/bunch.h"
 #include "bud_flow_lang/common.h"
 #include "bud_flow_lang/error.h"
-#include "bud_flow_lang/arena.h"
-#include "bud_flow_lang/type_system.h"
 #include "bud_flow_lang/ir.h"
-#include "bud_flow_lang/bunch.h"
+#include "bud_flow_lang/type_system.h"
 
 namespace bud {
 
@@ -28,9 +28,7 @@ struct Version {
     static constexpr int patch = BUD_VERSION_PATCH;
 
     static std::string string() {
-        return std::to_string(major) + "." +
-               std::to_string(minor) + "." +
-               std::to_string(patch);
+        return std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(patch);
     }
 };
 
@@ -40,17 +38,17 @@ struct Version {
 
 struct RuntimeConfig {
     // JIT settings
-    int jit_optimization_level = 2;       // 0=none, 1=basic, 2=full, 3=aggressive
+    int jit_optimization_level = 2;        // 0=none, 1=basic, 2=full, 3=aggressive
     bool enable_async_compilation = true;  // Background tier-2 compilation
     size_t code_cache_size_mb = 64;        // JIT code cache size
 
     // Memory settings
-    size_t arena_initial_size = 64 * 1024;        // 64 KB
-    size_t memory_pool_size_mb = 256;             // For large allocations
+    size_t arena_initial_size = 64 * 1024;  // 64 KB
+    size_t memory_pool_size_mb = 256;       // For large allocations
 
     // Debug settings
-    bool enable_ir_validation = false;     // Validate IR on every build (slow)
-    bool enable_debug_output = false;      // Print compilation info
+    bool enable_ir_validation = false;  // Validate IR on every build (slow)
+    bool enable_debug_output = false;   // Print compilation info
 };
 
 // Initialize the runtime (call once at program start)
@@ -126,7 +124,7 @@ struct CompileHint {
 
 // Mark a computation graph for JIT compilation
 class Flow {
-public:
+  public:
     explicit Flow(std::string_view name = "");
     ~Flow();
 
@@ -144,7 +142,7 @@ public:
         return execute(std::forward<Func>(func), a, b);
     }
 
-private:
+  private:
     template <typename Func, typename... Args>
     Result<Bunch> execute(Func&& func, Args&&... args);
 

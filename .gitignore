@@ -92,3 +92,5 @@ flamegraph.svg
 *.key
 credentials.json
 secrets.json
+build_asan/
+build_coverage/

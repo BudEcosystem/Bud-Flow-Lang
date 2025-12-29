@@ -2,8 +2,9 @@
 // Bud Flow Lang - Test Main Entry Point
 // =============================================================================
 
-#include <gtest/gtest.h>
 #include <spdlog/spdlog.h>
+
+#include <gtest/gtest.h>
 
 int main(int argc, char** argv) {
     // Initialize logging for tests

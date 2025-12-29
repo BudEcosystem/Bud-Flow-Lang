@@ -54,15 +54,15 @@ enum class OpCode : uint16_t {
     kPow,
 
     // Fused operations
-    kFma,      // a * b + c
-    kFnma,     // -(a * b) + c
+    kFma,   // a * b + c
+    kFnma,  // -(a * b) + c
 
     // Unary arithmetic
     kNeg,
     kAbs,
     kSqrt,
-    kRsqrt,    // 1/sqrt(x)
-    kRcp,      // 1/x
+    kRsqrt,  // 1/sqrt(x)
+    kRcp,    // 1/x
 
     // Transcendentals
     kExp,
@@ -129,12 +129,12 @@ enum class OpCode : uint16_t {
     kWhile,
 
     // Masking
-    kSelect,     // mask ? a : b
-    kCompress,   // extract elements where mask is true
-    kExpand,     // scatter elements to positions where mask is true
+    kSelect,    // mask ? a : b
+    kCompress,  // extract elements where mask is true
+    kExpand,    // scatter elements to positions where mask is true
 
     // Special
-    kPhi,        // SSA phi node
+    kPhi,  // SSA phi node
     kReturn,
     kCall,
 };
@@ -162,9 +162,8 @@ struct ValueId {
 // =============================================================================
 
 class IRNode {
-public:
-    IRNode(OpCode op, TypeDesc type, ValueId id)
-        : op_(op), type_(type), id_(id) {}
+  public:
+    IRNode(OpCode op, TypeDesc type, ValueId id) : op_(op), type_(type), id_(id) {}
 
     // Accessors
     [[nodiscard]] OpCode opCode() const { return op_; }
@@ -189,7 +188,7 @@ public:
     // Debug
     [[nodiscard]] std::string toString() const;
 
-private:
+  private:
     OpCode op_;
     TypeDesc type_;
     ValueId id_;
@@ -208,7 +207,7 @@ private:
 // =============================================================================
 
 class IRBuilder {
-public:
+  public:
     explicit IRBuilder(Arena& arena);
 
     // Create constants
@@ -277,7 +276,7 @@ public:
     // Debug output
     [[nodiscard]] std::string dump() const;
 
-private:
+  private:
     ValueId createNode(OpCode op, TypeDesc type);
     ValueId createBinaryOp(OpCode op, ValueId lhs, ValueId rhs);
     ValueId createUnaryOp(OpCode op, ValueId operand);
@@ -292,7 +291,7 @@ private:
 // =============================================================================
 
 class IRModule {
-public:
+  public:
     explicit IRModule(std::string name);
 
     [[nodiscard]] const std::string& name() const { return name_; }
@@ -310,7 +309,7 @@ public:
     [[nodiscard]] std::string toJson() const;
     static Result<IRModule> fromJson(std::string_view json);
 
-private:
+  private:
     std::string name_;
     Arena arena_;
     IRBuilder builder_;

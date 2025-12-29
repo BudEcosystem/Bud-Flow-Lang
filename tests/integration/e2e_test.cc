@@ -10,7 +10,7 @@ namespace bud {
 namespace {
 
 class E2ETest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         // Initialize runtime for each test
         RuntimeConfig config;

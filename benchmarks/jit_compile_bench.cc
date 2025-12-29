@@ -2,9 +2,9 @@
 // Bud Flow Lang - JIT Compilation Benchmarks
 // =============================================================================
 
-#include <nanobench.h>
-
 #include "bud_flow_lang/ir.h"
+
+#include <nanobench.h>
 
 namespace bud {
 

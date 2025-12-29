@@ -3,6 +3,7 @@
 // =============================================================================
 
 #include "bud_flow_lang/error.h"
+
 #include "bud_flow_lang/common.h"
 
 #include <fmt/format.h>

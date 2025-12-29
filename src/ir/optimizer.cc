@@ -20,7 +20,7 @@ namespace {
 
 // Constant folding pass
 class ConstantFoldingPass {
-public:
+  public:
     bool run(IRBuilder& builder) {
         bool changed = false;
         // TODO: Implement constant folding
@@ -32,7 +32,7 @@ public:
 
 // Dead code elimination pass
 class DeadCodeEliminationPass {
-public:
+  public:
     bool run(IRBuilder& builder, ValueId output) {
         bool changed = false;
 
@@ -52,9 +52,8 @@ public:
         return changed;
     }
 
-private:
-    void markLive(IRBuilder& builder, ValueId id,
-                  std::unordered_set<uint32_t>& live) {
+  private:
+    void markLive(IRBuilder& builder, ValueId id, std::unordered_set<uint32_t>& live) {
         if (!id.isValid() || live.count(id.id)) {
             return;
         }
@@ -71,7 +70,7 @@ private:
 
 // Operation fusion pass (e.g., mul + add -> fma)
 class FusionPass {
-public:
+  public:
     bool run(IRBuilder& builder) {
         bool changed = false;
 
@@ -87,7 +86,7 @@ public:
 
 // Strength reduction pass
 class StrengthReductionPass {
-public:
+  public:
     bool run(IRBuilder& builder) {
         bool changed = false;
 

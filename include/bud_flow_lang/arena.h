@@ -29,10 +29,10 @@ namespace bud {
 // =============================================================================
 
 struct ArenaConfig {
-    size_t initial_block_size = 64 * 1024;      // 64 KB default
-    size_t max_block_size = 16 * 1024 * 1024;   // 16 MB max
-    size_t alignment = kSimdAlignment;           // 128-byte alignment
-    bool grow_exponentially = true;              // Double block size on grow
+    size_t initial_block_size = 64 * 1024;     // 64 KB default
+    size_t max_block_size = 16 * 1024 * 1024;  // 16 MB max
+    size_t alignment = kSimdAlignment;         // 128-byte alignment
+    bool grow_exponentially = true;            // Double block size on grow
 };
 
 // =============================================================================
@@ -40,7 +40,7 @@ struct ArenaConfig {
 // =============================================================================
 
 class ArenaBlock : NonCopyable {
-public:
+  public:
     explicit ArenaBlock(size_t size);
     ~ArenaBlock();
 
@@ -54,7 +54,7 @@ public:
 
     void reset() { current_ = start_; }
 
-private:
+  private:
     char* start_ = nullptr;
     char* current_ = nullptr;
     char* end_ = nullptr;
@@ -65,7 +65,7 @@ private:
 // =============================================================================
 
 class Arena : NonCopyable {
-public:
+  public:
     explicit Arena(ArenaConfig config = {});
     ~Arena() = default;
 
@@ -79,19 +79,21 @@ public:
     // Allocate and construct object
     template <typename T, typename... Args>
     [[nodiscard]] T* create(Args&&... args) {
-        static_assert(alignof(T) <= kSimdAlignment,
-                      "Type alignment exceeds SIMD alignment");
+        static_assert(alignof(T) <= kSimdAlignment, "Type alignment exceeds SIMD alignment");
         void* ptr = allocate(sizeof(T), alignof(T));
-        if (!ptr) return nullptr;
+        if (!ptr)
+            return nullptr;
         return new (ptr) T(std::forward<Args>(args)...);
     }
 
     // Allocate array
     template <typename T>
     [[nodiscard]] T* allocateArray(size_t count) {
-        if (count == 0) return nullptr;
+        if (count == 0)
+            return nullptr;
         void* ptr = allocate(sizeof(T) * count, alignof(T));
-        if (!ptr) return nullptr;
+        if (!ptr)
+            return nullptr;
         // Default construct all elements
         T* arr = static_cast<T*>(ptr);
         for (size_t i = 0; i < count; ++i) {
@@ -108,7 +110,7 @@ public:
     [[nodiscard]] size_t totalCapacity() const;
     [[nodiscard]] size_t blockCount() const { return blocks_.size(); }
 
-private:
+  private:
     void addBlock(size_t min_size);
 
     ArenaConfig config_;
@@ -126,11 +128,11 @@ Arena& threadLocalArena();
 
 // Scoped arena reset (RAII)
 class ScopedArenaReset : NonCopyable {
-public:
+  public:
     explicit ScopedArenaReset(Arena& arena);
     ~ScopedArenaReset();
 
-private:
+  private:
     Arena& arena_;
     size_t saved_allocated_;
 };

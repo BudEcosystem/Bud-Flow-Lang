@@ -2,9 +2,9 @@
 // Bud Flow Lang - SIMD Operations Benchmarks
 // =============================================================================
 
-#include <nanobench.h>
-
 #include "bud_flow_lang/bunch.h"
+
+#include <nanobench.h>
 
 namespace bud {
 
@@ -17,7 +17,8 @@ void benchSimdOps() {
     auto a_result = Bunch::ones(N);
     auto b_result = Bunch::fill(N, 2.0f);
 
-    if (!a_result || !b_result) return;
+    if (!a_result || !b_result)
+        return;
 
     Bunch a = *a_result;
     Bunch b = *b_result;

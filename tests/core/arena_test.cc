@@ -29,8 +29,7 @@ TEST(ArenaTest, AlignmentGuarantee) {
         void* ptr = arena.allocate(i + 1);
         ASSERT_NE(ptr, nullptr);
         // Check SIMD alignment
-        EXPECT_TRUE(isAligned(ptr, kSimdAlignment))
-            << "Allocation " << i << " not aligned";
+        EXPECT_TRUE(isAligned(ptr, kSimdAlignment)) << "Allocation " << i << " not aligned";
     }
 }
 

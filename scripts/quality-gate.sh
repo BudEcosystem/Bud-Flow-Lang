@@ -132,9 +132,9 @@ MISSING_TOOLS=()
 
 command -v cmake >/dev/null 2>&1 && check_pass "cmake found" || { check_fail "cmake not found"; MISSING_TOOLS+=("cmake"); }
 command -v ninja >/dev/null 2>&1 && check_pass "ninja found" || { check_fail "ninja not found"; MISSING_TOOLS+=("ninja"); }
-command -v clang-format >/dev/null 2>&1 && check_pass "clang-format found" || { check_warn "clang-format not found (formatting check skipped, CI will verify)"; }
-command -v clang-tidy >/dev/null 2>&1 && check_pass "clang-tidy found" || { check_warn "clang-tidy not found (some checks will be skipped)"; }
-command -v cppcheck >/dev/null 2>&1 && check_pass "cppcheck found" || { check_warn "cppcheck not found (some checks will be skipped)"; }
+command -v clang-format >/dev/null 2>&1 && check_pass "clang-format found" || { check_fail "clang-format not found"; MISSING_TOOLS+=("clang-format"); }
+command -v clang-tidy >/dev/null 2>&1 && check_pass "clang-tidy found" || { check_fail "clang-tidy not found"; MISSING_TOOLS+=("clang-tidy"); }
+command -v cppcheck >/dev/null 2>&1 && check_pass "cppcheck found" || { check_fail "cppcheck not found"; MISSING_TOOLS+=("cppcheck"); }
 
 if [ ${#MISSING_TOOLS[@]} -gt 0 ]; then
     echo -e "\n${RED}ERROR: Required tools missing: ${MISSING_TOOLS[*]}${NC}"
@@ -167,9 +167,7 @@ check_info "Found $FILE_COUNT C++ files to check"
 print_section "Stage 1: Code Formatting (clang-format)"
 
 FORMAT_ERRORS=0
-if ! command -v clang-format >/dev/null 2>&1; then
-    check_warn "clang-format not installed - skipping (CI will verify formatting)"
-elif [ "$FIX_MODE" = true ]; then
+if [ "$FIX_MODE" = true ]; then
     check_info "Auto-fixing formatting issues..."
     echo "$CPP_FILES" | xargs -P $(nproc) clang-format -i --style=file 2>/dev/null || true
     check_pass "Formatting auto-fixed"

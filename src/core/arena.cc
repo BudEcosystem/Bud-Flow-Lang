@@ -5,6 +5,7 @@
 #include "bud_flow_lang/arena.h"
 
 #include <hwy/aligned_allocator.h>
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -19,8 +20,7 @@ namespace bud {
 ArenaBlock::ArenaBlock(size_t size) {
     // Use Highway's aligned allocator for SIMD-friendly alignment
     // Highway handles SIMD alignment internally (HWY_ALIGNMENT)
-    start_ = static_cast<char*>(
-        hwy::AllocateAlignedBytes(size, nullptr, nullptr));
+    start_ = static_cast<char*>(hwy::AllocateAlignedBytes(size, nullptr, nullptr));
 
     if (start_) {
         current_ = start_;
@@ -37,9 +37,7 @@ ArenaBlock::~ArenaBlock() {
 }
 
 ArenaBlock::ArenaBlock(ArenaBlock&& other) noexcept
-    : start_(other.start_)
-    , current_(other.current_)
-    , end_(other.end_) {
+    : start_(other.start_), current_(other.current_), end_(other.end_) {
     other.start_ = nullptr;
     other.current_ = nullptr;
     other.end_ = nullptr;
@@ -79,17 +77,16 @@ void* ArenaBlock::allocate(size_t size, size_t alignment) {
 // Arena Implementation
 // =============================================================================
 
-Arena::Arena(ArenaConfig config)
-    : config_(std::move(config)) {
+Arena::Arena(ArenaConfig config) : config_(std::move(config)) {
     // Pre-allocate first block
     addBlock(config_.initial_block_size);
 }
 
 Arena::Arena(Arena&& other) noexcept
-    : config_(std::move(other.config_))
-    , blocks_(std::move(other.blocks_))
-    , current_block_(other.current_block_)
-    , total_allocated_(other.total_allocated_) {
+    : config_(std::move(other.config_)),
+      blocks_(std::move(other.blocks_)),
+      current_block_(other.current_block_),
+      total_allocated_(other.total_allocated_) {
     other.current_block_ = 0;
     other.total_allocated_ = 0;
 }
@@ -140,9 +137,7 @@ void* Arena::allocate(size_t size, size_t alignment) {
     // Need to add a new block
     size_t block_size = config_.initial_block_size;
     if (config_.grow_exponentially && !blocks_.empty()) {
-        block_size = std::min(
-            blocks_.back().capacity() * 2,
-            config_.max_block_size);
+        block_size = std::min(blocks_.back().capacity() * 2, config_.max_block_size);
     }
 
     // Ensure block is large enough for this allocation
@@ -196,16 +191,15 @@ Arena& threadLocalArena() {
 // =============================================================================
 
 ScopedArenaReset::ScopedArenaReset(Arena& arena)
-    : arena_(arena)
-    , saved_allocated_(arena.totalAllocated()) {}
+    : arena_(arena), saved_allocated_(arena.totalAllocated()) {}
 
 ScopedArenaReset::~ScopedArenaReset() {
     // Note: This is a simplified reset. A full implementation would
     // need to track the exact allocation point to reset to.
     // For now, we just log if allocations occurred.
     if (arena_.totalAllocated() != saved_allocated_) {
-        spdlog::debug("ScopedArenaReset: Arena grew from {} to {} bytes",
-                      saved_allocated_, arena_.totalAllocated());
+        spdlog::debug("ScopedArenaReset: Arena grew from {} to {} bytes", saved_allocated_,
+                      arena_.totalAllocated());
     }
 }
 

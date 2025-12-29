@@ -3,9 +3,11 @@
 // =============================================================================
 
 #include "bud_flow_lang/bunch.h"
+
 #include "bud_flow_lang/ir.h"
 
 #include <hwy/aligned_allocator.h>
+
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
@@ -18,7 +20,7 @@ namespace bud {
 // =============================================================================
 
 class BunchImpl {
-public:
+  public:
     BunchImpl() = default;
 
     ~BunchImpl() {
@@ -87,7 +89,7 @@ public:
         return {};
     }
 
-private:
+  private:
     void* data_ = nullptr;
     size_t count_ = 0;
     ScalarType dtype_ = ScalarType::kUnknown;
@@ -185,18 +187,25 @@ Result<Bunch> Bunch::arange(size_t count, float start, float step) {
 }
 
 // Properties
-size_t Bunch::size() const { return impl_->count(); }
-ScalarType Bunch::dtype() const { return impl_->dtype(); }
-const Shape& Bunch::shape() const { return impl_->shape(); }
-TypeDesc Bunch::type() const { return impl_->type(); }
+size_t Bunch::size() const {
+    return impl_->count();
+}
+ScalarType Bunch::dtype() const {
+    return impl_->dtype();
+}
+const Shape& Bunch::shape() const {
+    return impl_->shape();
+}
+TypeDesc Bunch::type() const {
+    return impl_->type();
+}
 
 const void* Bunch::data() const {
     // Materialize if lazy
     if (impl_->isLazy()) {
         auto result = const_cast<BunchImpl*>(impl_.get())->materialize();
         if (!result) {
-            spdlog::error("Failed to materialize Bunch: {}",
-                          result.error().toString());
+            spdlog::error("Failed to materialize Bunch: {}", result.error().toString());
             return nullptr;
         }
     }
@@ -272,18 +281,35 @@ Bunch Bunch::operator-() const {
     return *this;
 }
 
-Bunch Bunch::abs() const { return *this; }
-Bunch Bunch::sqrt() const { return *this; }
-Bunch Bunch::rsqrt() const { return *this; }
-Bunch Bunch::exp() const { return *this; }
-Bunch Bunch::log() const { return *this; }
-Bunch Bunch::sin() const { return *this; }
-Bunch Bunch::cos() const { return *this; }
-Bunch Bunch::tanh() const { return *this; }
+Bunch Bunch::abs() const {
+    return *this;
+}
+Bunch Bunch::sqrt() const {
+    return *this;
+}
+Bunch Bunch::rsqrt() const {
+    return *this;
+}
+Bunch Bunch::exp() const {
+    return *this;
+}
+Bunch Bunch::log() const {
+    return *this;
+}
+Bunch Bunch::sin() const {
+    return *this;
+}
+Bunch Bunch::cos() const {
+    return *this;
+}
+Bunch Bunch::tanh() const {
+    return *this;
+}
 
 // Reductions (placeholder)
 float Bunch::sum() const {
-    if (dtype() != ScalarType::kFloat32) return 0.0f;
+    if (dtype() != ScalarType::kFloat32)
+        return 0.0f;
     const float* ptr = static_cast<const float*>(data());
     float total = 0.0f;
     for (size_t i = 0; i < size(); ++i) {
@@ -293,32 +319,38 @@ float Bunch::sum() const {
 }
 
 float Bunch::max() const {
-    if (dtype() != ScalarType::kFloat32 || size() == 0) return 0.0f;
+    if (dtype() != ScalarType::kFloat32 || size() == 0)
+        return 0.0f;
     const float* ptr = static_cast<const float*>(data());
     float m = ptr[0];
     for (size_t i = 1; i < size(); ++i) {
-        if (ptr[i] > m) m = ptr[i];
+        if (ptr[i] > m)
+            m = ptr[i];
     }
     return m;
 }
 
 float Bunch::min() const {
-    if (dtype() != ScalarType::kFloat32 || size() == 0) return 0.0f;
+    if (dtype() != ScalarType::kFloat32 || size() == 0)
+        return 0.0f;
     const float* ptr = static_cast<const float*>(data());
     float m = ptr[0];
     for (size_t i = 1; i < size(); ++i) {
-        if (ptr[i] < m) m = ptr[i];
+        if (ptr[i] < m)
+            m = ptr[i];
     }
     return m;
 }
 
 float Bunch::mean() const {
-    if (size() == 0) return 0.0f;
+    if (size() == 0)
+        return 0.0f;
     return sum() / static_cast<float>(size());
 }
 
 float Bunch::dot(const Bunch& other) const {
-    if (size() != other.size() || dtype() != ScalarType::kFloat32) return 0.0f;
+    if (size() != other.size() || dtype() != ScalarType::kFloat32)
+        return 0.0f;
     const float* a = static_cast<const float*>(data());
     const float* b = static_cast<const float*>(other.data());
     float total = 0.0f;
@@ -329,11 +361,21 @@ float Bunch::dot(const Bunch& other) const {
 }
 
 // Comparisons
-Bunch Bunch::eq(const Bunch& other) const { return *this; }
-Bunch Bunch::lt(const Bunch& other) const { return *this; }
-Bunch Bunch::le(const Bunch& other) const { return *this; }
-Bunch Bunch::gt(const Bunch& other) const { return *this; }
-Bunch Bunch::ge(const Bunch& other) const { return *this; }
+Bunch Bunch::eq(const Bunch& other) const {
+    return *this;
+}
+Bunch Bunch::lt(const Bunch& other) const {
+    return *this;
+}
+Bunch Bunch::le(const Bunch& other) const {
+    return *this;
+}
+Bunch Bunch::gt(const Bunch& other) const {
+    return *this;
+}
+Bunch Bunch::ge(const Bunch& other) const {
+    return *this;
+}
 
 Bunch Bunch::where(const Bunch& mask, const Bunch& other) const {
     return *this;
@@ -344,9 +386,7 @@ Result<void> Bunch::eval() {
 }
 
 std::string Bunch::toString() const {
-    return fmt::format("Bunch(shape={}, dtype={})",
-                       shape().toString(),
-                       scalarTypeName(dtype()));
+    return fmt::format("Bunch(shape={}, dtype={})", shape().toString(), scalarTypeName(dtype()));
 }
 
 // =============================================================================

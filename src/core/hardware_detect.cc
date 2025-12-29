@@ -5,6 +5,7 @@
 #include "bud_flow_lang/bud_flow_lang.h"
 
 #include <hwy/targets.h>
+
 #include <spdlog/spdlog.h>
 
 #include <thread>
@@ -63,10 +64,8 @@ HardwareInfo detectHardware() {
     // TODO: Detect cache sizes via CPUID or /proc/cpuinfo
 
     spdlog::info("Hardware detection: SIMD width = {} bytes", info.simd_width);
-    spdlog::info("  SSE4={}, AVX2={}, AVX512={}",
-                 info.has_sse4, info.has_avx2, info.has_avx512);
-    spdlog::info("  NEON={}, SVE={}, SVE2={}",
-                 info.has_neon, info.has_sve, info.has_sve2);
+    spdlog::info("  SSE4={}, AVX2={}, AVX512={}", info.has_sse4, info.has_avx2, info.has_avx512);
+    spdlog::info("  NEON={}, SVE={}, SVE2={}", info.has_neon, info.has_sve, info.has_sve2);
     spdlog::info("  RVV={}", info.has_rvv);
 
     return info;

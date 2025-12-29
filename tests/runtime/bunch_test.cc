@@ -4,9 +4,9 @@
 
 #include "bud_flow_lang/bunch.h"
 
-#include <gtest/gtest.h>
-
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace bud {
 namespace {

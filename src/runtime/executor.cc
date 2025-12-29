@@ -47,8 +47,7 @@ Result<void> initialize(const RuntimeConfig& config) {
     g_hardware_info = getHardwareInfo();
 
     spdlog::info("  SIMD width: {} bytes", g_hardware_info.simd_width);
-    spdlog::info("  Cores: {} physical, {} logical",
-                 g_hardware_info.physical_cores,
+    spdlog::info("  Cores: {} physical, {} logical", g_hardware_info.physical_cores,
                  g_hardware_info.logical_cores);
 
     // Initialize JIT compiler
@@ -99,8 +98,7 @@ struct Flow::Impl {
     ir::IRModule* module = nullptr;
 };
 
-Flow::Flow(std::string_view name)
-    : impl_(std::make_unique<Impl>()) {
+Flow::Flow(std::string_view name) : impl_(std::make_unique<Impl>()) {
     impl_->name = std::string(name);
 }
 

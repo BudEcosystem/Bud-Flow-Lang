@@ -3,9 +3,9 @@
 // =============================================================================
 
 #define ANKERL_NANOBENCH_IMPLEMENT
-#include <nanobench.h>
-
 #include "bud_flow_lang/bud_flow_lang.h"
+
+#include <nanobench.h>
 
 int main(int argc, char** argv) {
     bud::initialize();

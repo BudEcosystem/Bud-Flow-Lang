@@ -6,8 +6,8 @@
 // Uses hash of IR structure as cache key.
 //
 
-#include "bud_flow_lang/ir.h"
 #include "bud_flow_lang/error.h"
+#include "bud_flow_lang/ir.h"
 
 #include <spdlog/spdlog.h>
 
@@ -26,7 +26,7 @@ class CompiledKernel;
 // =============================================================================
 
 class IRHasher {
-public:
+  public:
     using HashType = uint64_t;
 
     static HashType hash(const ir::IRBuilder& builder) {
@@ -47,7 +47,7 @@ public:
         return h;
     }
 
-private:
+  private:
     static HashType combine(HashType h, uint64_t value) {
         // FNV-1a style combining
         h ^= value;
@@ -61,7 +61,7 @@ private:
 // =============================================================================
 
 class CodeCache {
-public:
+  public:
     struct CacheEntry {
         std::shared_ptr<CompiledKernel> kernel;
         size_t code_size;
@@ -77,8 +77,7 @@ public:
         double hit_rate = 0.0;
     };
 
-    CodeCache(size_t max_size_bytes = 64 * 1024 * 1024)
-        : max_size_bytes_(max_size_bytes) {}
+    CodeCache(size_t max_size_bytes = 64 * 1024 * 1024) : max_size_bytes_(max_size_bytes) {}
 
     // Look up a cached kernel
     std::shared_ptr<CompiledKernel> find(IRHasher::HashType key) {
@@ -96,9 +95,7 @@ public:
     }
 
     // Insert a compiled kernel
-    void insert(IRHasher::HashType key,
-                std::shared_ptr<CompiledKernel> kernel,
-                size_t code_size,
+    void insert(IRHasher::HashType key, std::shared_ptr<CompiledKernel> kernel, size_t code_size,
                 uint64_t compile_time_us) {
         std::unique_lock lock(mutex_);
 
@@ -107,20 +104,14 @@ public:
             evictLRU();
         }
 
-        CacheEntry entry{
-            std::move(kernel),
-            code_size,
-            compile_time_us,
-            0
-        };
+        CacheEntry entry{std::move(kernel), code_size, compile_time_us, 0};
 
         cache_[key] = std::move(entry);
         current_size_bytes_ += code_size;
         ++stats_.total_entries;
         stats_.total_bytes = current_size_bytes_;
 
-        spdlog::debug("CodeCache: Inserted kernel (hash={:#x}, size={})",
-                      key, code_size);
+        spdlog::debug("CodeCache: Inserted kernel (hash={:#x}, size={})", key, code_size);
     }
 
     // Get cache statistics
@@ -128,8 +119,7 @@ public:
         std::shared_lock lock(mutex_);
         Stats s = stats_;
         if (s.total_hits + s.total_misses > 0) {
-            s.hit_rate = static_cast<double>(s.total_hits) /
-                         (s.total_hits + s.total_misses);
+            s.hit_rate = static_cast<double>(s.total_hits) / (s.total_hits + s.total_misses);
         }
         return s;
     }
@@ -148,10 +138,11 @@ public:
         return cache_.size();
     }
 
-private:
+  private:
     void evictLRU() {
         // Simple eviction: remove entry with lowest hit count
-        if (cache_.empty()) return;
+        if (cache_.empty())
+            return;
 
         auto min_it = cache_.begin();
         for (auto it = cache_.begin(); it != cache_.end(); ++it) {

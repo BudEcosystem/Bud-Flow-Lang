@@ -9,6 +9,7 @@
 #include "bud_flow_lang/common.h"
 
 #include <hwy/aligned_allocator.h>
+
 #include <spdlog/spdlog.h>
 
 #include <mutex>
@@ -22,24 +23,22 @@ namespace bud {
 
 // Configuration struct (defined outside class for default arg visibility)
 struct MemoryPoolConfig {
-    size_t initial_size = 64 * 1024 * 1024;   // 64 MB
-    size_t max_size = 1024 * 1024 * 1024;     // 1 GB
-    size_t block_size = 4 * 1024 * 1024;      // 4 MB blocks
+    size_t initial_size = 64 * 1024 * 1024;  // 64 MB
+    size_t max_size = 1024 * 1024 * 1024;    // 1 GB
+    size_t block_size = 4 * 1024 * 1024;     // 4 MB blocks
 };
 
 class MemoryPool {
-public:
+  public:
     using Config = MemoryPoolConfig;
 
-    explicit MemoryPool(Config config = Config{})
-        : config_(std::move(config)) {
+    explicit MemoryPool(Config config = Config{}) : config_(std::move(config)) {
         // Pre-allocate initial blocks
         size_t num_blocks = config_.initial_size / config_.block_size;
         for (size_t i = 0; i < num_blocks; ++i) {
             allocateBlock();
         }
-        spdlog::debug("MemoryPool: Initialized with {} blocks ({} MB)",
-                      blocks_.size(),
+        spdlog::debug("MemoryPool: Initialized with {} blocks ({} MB)", blocks_.size(),
                       blocks_.size() * config_.block_size / (1024 * 1024));
     }
 
@@ -105,7 +104,7 @@ public:
         return total;
     }
 
-private:
+  private:
     struct Block {
         void* ptr = nullptr;
         size_t size = 0;

@@ -180,13 +180,13 @@ std::string_view IRNode::stringAttr(std::string_view name) const {
 }
 
 std::string IRNode::toString() const {
-    std::string result = fmt::format("%{} = {} : {}", id_.id, opCodeName(op_),
-                                      type_.toString());
+    std::string result = fmt::format("%{} = {} : {}", id_.id, opCodeName(op_), type_.toString());
 
     if (!operands_.empty()) {
         result += " (";
         for (size_t i = 0; i < operands_.size(); ++i) {
-            if (i > 0) result += ", ";
+            if (i > 0)
+                result += ", ";
             result += fmt::format("%{}", operands_[i].id);
         }
         result += ")";

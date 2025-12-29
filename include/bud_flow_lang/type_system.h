@@ -70,7 +70,7 @@ bool isSigned(ScalarType type);
 constexpr size_t kMaxDims = 8;
 
 class Shape {
-public:
+  public:
     Shape() = default;
     explicit Shape(std::initializer_list<size_t> dims);
     explicit Shape(const std::vector<size_t>& dims);
@@ -103,7 +103,7 @@ public:
     static Shape vector(size_t n) { return Shape({n}); }
     static Shape matrix(size_t m, size_t n) { return Shape({m, n}); }
 
-private:
+  private:
     std::array<size_t, kMaxDims> dims_ = {};
     uint8_t rank_ = 0;
 };
@@ -113,7 +113,7 @@ private:
 // =============================================================================
 
 class TypeDesc {
-public:
+  public:
     TypeDesc() = default;
     TypeDesc(ScalarType scalar, Shape shape = Shape::scalar());
 
@@ -130,9 +130,7 @@ public:
 
     // Comparison
     [[nodiscard]] bool operator==(const TypeDesc& other) const;
-    [[nodiscard]] bool operator!=(const TypeDesc& other) const {
-        return !(*this == other);
-    }
+    [[nodiscard]] bool operator!=(const TypeDesc& other) const { return !(*this == other); }
 
     // String representation
     [[nodiscard]] std::string toString() const;
@@ -142,11 +140,9 @@ public:
     static TypeDesc f64() { return TypeDesc(ScalarType::kFloat64); }
     static TypeDesc i32() { return TypeDesc(ScalarType::kInt32); }
     static TypeDesc i64() { return TypeDesc(ScalarType::kInt64); }
-    static TypeDesc f32Vector(size_t n) {
-        return TypeDesc(ScalarType::kFloat32, Shape::vector(n));
-    }
+    static TypeDesc f32Vector(size_t n) { return TypeDesc(ScalarType::kFloat32, Shape::vector(n)); }
 
-private:
+  private:
     ScalarType scalar_type_ = ScalarType::kUnknown;
     Shape shape_;
 };
@@ -156,7 +152,7 @@ private:
 // =============================================================================
 
 class TypeInferrer {
-public:
+  public:
     // Binary operation type inference
     static Result<TypeDesc> inferBinaryOp(const TypeDesc& lhs, const TypeDesc& rhs);
 

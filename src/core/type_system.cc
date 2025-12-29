@@ -76,10 +76,8 @@ std::string_view scalarTypeName(ScalarType type) {
 }
 
 bool isFloatingPoint(ScalarType type) {
-    return type == ScalarType::kFloat16 ||
-           type == ScalarType::kFloat32 ||
-           type == ScalarType::kFloat64 ||
-           type == ScalarType::kBFloat16;
+    return type == ScalarType::kFloat16 || type == ScalarType::kFloat32 ||
+           type == ScalarType::kFloat64 || type == ScalarType::kBFloat16;
 }
 
 bool isInteger(ScalarType type) {
@@ -87,8 +85,7 @@ bool isInteger(ScalarType type) {
 }
 
 bool isSigned(ScalarType type) {
-    return isFloatingPoint(type) ||
-           (type >= ScalarType::kInt8 && type <= ScalarType::kInt64);
+    return isFloatingPoint(type) || (type >= ScalarType::kInt8 && type <= ScalarType::kInt64);
 }
 
 // =============================================================================
@@ -111,8 +108,8 @@ size_t Shape::totalElements() const {
     if (rank_ == 0) {
         return 1;  // Scalar
     }
-    return std::accumulate(dims_.begin(), dims_.begin() + rank_,
-                           size_t{1}, std::multiplies<size_t>());
+    return std::accumulate(dims_.begin(), dims_.begin() + rank_, size_t{1},
+                           std::multiplies<size_t>());
 }
 
 Result<Shape> Shape::broadcast(const Shape& a, const Shape& b) {
@@ -139,9 +136,8 @@ Result<Shape> Shape::broadcast(const Shape& a, const Shape& b) {
         } else if (b_dim == 1) {
             result.dims_[result_rank - 1 - i] = a_dim;
         } else {
-            return Error(ErrorCode::kShapeMismatch,
-                         fmt::format("Cannot broadcast shapes {} and {}",
-                                     a.toString(), b.toString()));
+            return Error(ErrorCode::kShapeMismatch, fmt::format("Cannot broadcast shapes {} and {}",
+                                                                a.toString(), b.toString()));
         }
     }
 
@@ -186,8 +182,7 @@ std::string Shape::toString() const {
 // =============================================================================
 
 TypeDesc::TypeDesc(ScalarType scalar, Shape shape)
-    : scalar_type_(scalar)
-    , shape_(std::move(shape)) {}
+    : scalar_type_(scalar), shape_(std::move(shape)) {}
 
 size_t TypeDesc::byteSize() const {
     return scalarTypeSize(scalar_type_) * elementCount();
@@ -205,14 +200,12 @@ std::string TypeDesc::toString() const {
 // Type Inference
 // =============================================================================
 
-Result<TypeDesc> TypeInferrer::inferBinaryOp(const TypeDesc& lhs,
-                                              const TypeDesc& rhs) {
+Result<TypeDesc> TypeInferrer::inferBinaryOp(const TypeDesc& lhs, const TypeDesc& rhs) {
     // Types must match for now (no automatic promotion)
     if (lhs.scalarType() != rhs.scalarType()) {
-        return Error(ErrorCode::kTypeMismatch,
-                     fmt::format("Binary op type mismatch: {} vs {}",
-                                 scalarTypeName(lhs.scalarType()),
-                                 scalarTypeName(rhs.scalarType())));
+        return Error(ErrorCode::kTypeMismatch, fmt::format("Binary op type mismatch: {} vs {}",
+                                                           scalarTypeName(lhs.scalarType()),
+                                                           scalarTypeName(rhs.scalarType())));
     }
 
     // Broadcast shapes
@@ -239,8 +232,7 @@ Result<TypeDesc> TypeInferrer::inferReduction(const TypeDesc& operand, int axis)
     const auto& shape = operand.shape();
     if (axis < 0 || static_cast<size_t>(axis) >= shape.rank()) {
         return Error(ErrorCode::kInvalidOperand,
-                     fmt::format("Invalid reduction axis {} for rank {}",
-                                 axis, shape.rank()));
+                     fmt::format("Invalid reduction axis {} for rank {}", axis, shape.rank()));
     }
 
     // Build new shape with axis removed

@@ -95,16 +95,26 @@ constexpr bool isAligned(T* ptr, size_t alignment) {
 template <typename T>
 struct IsSimdScalar : std::false_type {};
 
-template <> struct IsSimdScalar<float> : std::true_type {};
-template <> struct IsSimdScalar<double> : std::true_type {};
-template <> struct IsSimdScalar<int8_t> : std::true_type {};
-template <> struct IsSimdScalar<int16_t> : std::true_type {};
-template <> struct IsSimdScalar<int32_t> : std::true_type {};
-template <> struct IsSimdScalar<int64_t> : std::true_type {};
-template <> struct IsSimdScalar<uint8_t> : std::true_type {};
-template <> struct IsSimdScalar<uint16_t> : std::true_type {};
-template <> struct IsSimdScalar<uint32_t> : std::true_type {};
-template <> struct IsSimdScalar<uint64_t> : std::true_type {};
+template <>
+struct IsSimdScalar<float> : std::true_type {};
+template <>
+struct IsSimdScalar<double> : std::true_type {};
+template <>
+struct IsSimdScalar<int8_t> : std::true_type {};
+template <>
+struct IsSimdScalar<int16_t> : std::true_type {};
+template <>
+struct IsSimdScalar<int32_t> : std::true_type {};
+template <>
+struct IsSimdScalar<int64_t> : std::true_type {};
+template <>
+struct IsSimdScalar<uint8_t> : std::true_type {};
+template <>
+struct IsSimdScalar<uint16_t> : std::true_type {};
+template <>
+struct IsSimdScalar<uint32_t> : std::true_type {};
+template <>
+struct IsSimdScalar<uint64_t> : std::true_type {};
 
 template <typename T>
 inline constexpr bool kIsSimdScalar = IsSimdScalar<T>::value;
@@ -118,11 +128,11 @@ inline constexpr bool kIsSimdScalar = IsSimdScalar<T>::value;
     #define BUD_ASSERT(cond) ((void)0)
 #else
     #define BUD_DEBUG_ONLY(x) x
-    #define BUD_ASSERT(cond) \
-        do { \
-            if (BUD_UNLIKELY(!(cond))) { \
+    #define BUD_ASSERT(cond)                                  \
+        do {                                                  \
+            if (BUD_UNLIKELY(!(cond))) {                      \
                 bud::assertFailed(#cond, __FILE__, __LINE__); \
-            } \
+            }                                                 \
         } while (0)
 #endif
 
@@ -135,7 +145,7 @@ inline constexpr bool kIsSimdScalar = IsSimdScalar<T>::value;
 
 // Non-copyable base class
 class NonCopyable {
-protected:
+  protected:
     NonCopyable() = default;
     ~NonCopyable() = default;
 
@@ -145,7 +155,7 @@ protected:
 
 // Non-movable base class
 class NonMovable : public NonCopyable {
-protected:
+  protected:
     NonMovable() = default;
     ~NonMovable() = default;
 

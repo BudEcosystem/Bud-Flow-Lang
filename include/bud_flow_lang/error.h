@@ -79,11 +79,10 @@ std::string_view errorCodeToString(ErrorCode code);
 // =============================================================================
 
 class Error {
-public:
+  public:
     Error() : code_(ErrorCode::kOk) {}
     explicit Error(ErrorCode code) : code_(code) {}
-    Error(ErrorCode code, std::string message)
-        : code_(code), message_(std::move(message)) {}
+    Error(ErrorCode code, std::string message) : code_(code), message_(std::move(message)) {}
 
     // Check if this is an error
     [[nodiscard]] bool isError() const { return code_ != ErrorCode::kOk; }
@@ -104,7 +103,7 @@ public:
         return Error(code, std::move(message));
     }
 
-private:
+  private:
     ErrorCode code_;
     std::string message_;
 };
@@ -115,21 +114,17 @@ private:
 
 template <typename T>
 class Result {
-public:
+  public:
     // Construct from value (success)
     Result(T value) : data_(std::move(value)) {}  // NOLINT: intentional implicit
 
     // Construct from error
     Result(Error error) : data_(std::move(error)) {}  // NOLINT: intentional implicit
-    Result(ErrorCode code) : data_(Error(code)) {}  // NOLINT: intentional implicit
+    Result(ErrorCode code) : data_(Error(code)) {}    // NOLINT: intentional implicit
 
     // Check state
-    [[nodiscard]] bool hasValue() const {
-        return std::holds_alternative<T>(data_);
-    }
-    [[nodiscard]] bool hasError() const {
-        return std::holds_alternative<Error>(data_);
-    }
+    [[nodiscard]] bool hasValue() const { return std::holds_alternative<T>(data_); }
+    [[nodiscard]] bool hasError() const { return std::holds_alternative<Error>(data_); }
     explicit operator bool() const { return hasValue(); }
 
     // Value access (undefined behavior if hasError())
@@ -151,7 +146,7 @@ public:
     T& operator*() & { return value(); }
     const T& operator*() const& { return value(); }
 
-private:
+  private:
     std::variant<T, Error> data_;
 };
 
@@ -161,10 +156,10 @@ private:
 
 template <>
 class Result<void> {
-public:
+  public:
     Result() : error_(Error::ok()) {}
     Result(Error error) : error_(std::move(error)) {}  // NOLINT: intentional implicit
-    Result(ErrorCode code) : error_(Error(code)) {}  // NOLINT: intentional implicit
+    Result(ErrorCode code) : error_(Error(code)) {}    // NOLINT: intentional implicit
 
     [[nodiscard]] bool hasValue() const { return error_.isOk(); }
     [[nodiscard]] bool hasError() const { return error_.isError(); }
@@ -172,7 +167,7 @@ public:
 
     [[nodiscard]] const Error& error() const { return error_; }
 
-private:
+  private:
     Error error_;
 };
 
@@ -181,25 +176,24 @@ private:
 // =============================================================================
 
 // Return early if result is an error (like Rust's ? operator)
-#define BUD_TRY(expr)                           \
-    do {                                        \
-        auto&& _result = (expr);                \
-        if (!_result) {                         \
-            return _result.error();             \
-        }                                       \
+#define BUD_TRY(expr)               \
+    do {                            \
+        auto&& _result = (expr);    \
+        if (!_result) {             \
+            return _result.error(); \
+        }                           \
     } while (0)
 
 // Assign value or return error
-#define BUD_ASSIGN_OR_RETURN(var, expr)         \
-    auto&& _result_##var = (expr);              \
-    if (!_result_##var) {                       \
-        return _result_##var.error();           \
-    }                                           \
+#define BUD_ASSIGN_OR_RETURN(var, expr) \
+    auto&& _result_##var = (expr);      \
+    if (!_result_##var) {               \
+        return _result_##var.error();   \
+    }                                   \
     var = std::move(*_result_##var)
 
 // Return error with message
-#define BUD_RETURN_ERROR(code, msg) \
-    return ::bud::Error::make(code, msg)
+#define BUD_RETURN_ERROR(code, msg) return ::bud::Error::make(code, msg)
 
 // Return success
 #define BUD_RETURN_OK() return ::bud::Error::ok()

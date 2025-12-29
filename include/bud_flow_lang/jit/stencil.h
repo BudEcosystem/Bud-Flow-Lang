@@ -28,14 +28,14 @@ struct Stencil {
 
     // Hole positions (offsets into code where patching is needed)
     struct Hole {
-        size_t offset;          // Byte offset in code
+        size_t offset;  // Byte offset in code
         enum Kind {
-            kImmediate32,       // 32-bit immediate value
-            kImmediate64,       // 64-bit immediate value
-            kRelAddress32,      // 32-bit relative address
-            kAbsAddress64,      // 64-bit absolute address
+            kImmediate32,   // 32-bit immediate value
+            kImmediate64,   // 64-bit immediate value
+            kRelAddress32,  // 32-bit relative address
+            kAbsAddress64,  // 64-bit absolute address
         } kind;
-        std::string name;       // Hole identifier (e.g., "input_ptr", "output_ptr")
+        std::string name;  // Hole identifier (e.g., "input_ptr", "output_ptr")
     };
     std::vector<Hole> holes;
 

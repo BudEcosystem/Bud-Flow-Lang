@@ -23,16 +23,14 @@ namespace ir {
 // =============================================================================
 
 class LazyGraph {
-public:
+  public:
     // Add a pending operation
     void addOp(ValueId result, OpCode op, const std::vector<ValueId>& inputs) {
         pending_ops_[result.id] = {op, inputs};
     }
 
     // Check if a value is computed
-    bool isComputed(ValueId id) const {
-        return computed_.count(id.id) > 0;
-    }
+    bool isComputed(ValueId id) const { return computed_.count(id.id) > 0; }
 
     // Mark a value as computed
     void markComputed(ValueId id) {
@@ -51,9 +49,7 @@ public:
     }
 
     // Check if graph is empty (all computed)
-    bool isEmpty() const {
-        return pending_ops_.empty();
-    }
+    bool isEmpty() const { return pending_ops_.empty(); }
 
     // Clear all pending operations
     void clear() {
@@ -61,7 +57,7 @@ public:
         computed_.clear();
     }
 
-private:
+  private:
     struct PendingOp {
         OpCode op;
         std::vector<ValueId> inputs;
@@ -94,12 +90,12 @@ private:
 // =============================================================================
 
 class FusionAnalyzer {
-public:
+  public:
     // Identify fusion opportunities in the lazy graph
     struct FusionGroup {
-        std::vector<ValueId> ops;      // Operations to fuse
-        std::string pattern;            // Fusion pattern name
-        double estimated_speedup;       // Expected performance gain
+        std::vector<ValueId> ops;  // Operations to fuse
+        std::string pattern;       // Fusion pattern name
+        double estimated_speedup;  // Expected performance gain
     };
 
     std::vector<FusionGroup> analyze(const IRBuilder& builder, ValueId output) {
@@ -127,9 +123,9 @@ public:
         return groups;
     }
 
-private:
-    std::vector<std::vector<ValueId>> findElementwiseChains(
-            const IRBuilder& builder, ValueId output) {
+  private:
+    std::vector<std::vector<ValueId>> findElementwiseChains(const IRBuilder& builder,
+                                                            ValueId output) {
         std::vector<std::vector<ValueId>> chains;
 
         // TODO: Implement element-wise chain detection
@@ -138,8 +134,7 @@ private:
         return chains;
     }
 
-    std::vector<FusionGroup> findReductionFusions(
-            const IRBuilder& builder, ValueId output) {
+    std::vector<FusionGroup> findReductionFusions(const IRBuilder& builder, ValueId output) {
         std::vector<FusionGroup> fusions;
 
         // TODO: Implement reduction fusion detection
@@ -148,8 +143,7 @@ private:
         return fusions;
     }
 
-    std::vector<FusionGroup> findBroadcastFusions(
-            const IRBuilder& builder, ValueId output) {
+    std::vector<FusionGroup> findBroadcastFusions(const IRBuilder& builder, ValueId output) {
         std::vector<FusionGroup> fusions;
 
         // TODO: Implement broadcast fusion detection
@@ -164,7 +158,7 @@ private:
 // =============================================================================
 
 class LazyEvaluator {
-public:
+  public:
     LazyEvaluator() = default;
 
     // Defer an operation (don't execute immediately)
@@ -204,16 +198,12 @@ public:
     }
 
     // Check if there are pending operations
-    bool hasPending() const {
-        return !graph_.isEmpty();
-    }
+    bool hasPending() const { return !graph_.isEmpty(); }
 
     // Clear all deferred operations
-    void reset() {
-        graph_.clear();
-    }
+    void reset() { graph_.clear(); }
 
-private:
+  private:
     LazyGraph graph_;
 };
 

@@ -181,10 +181,12 @@ ValueId IRBuilder::tanh(ValueId x) {
 // Reductions
 ValueId IRBuilder::reduceSum(ValueId x, int axis) {
     auto* x_node = getNode(x);
-    if (!x_node) return ValueId::invalid();
+    if (!x_node)
+        return ValueId::invalid();
 
     auto type_result = TypeInferrer::inferReduction(x_node->type(), axis);
-    if (!type_result) return ValueId::invalid();
+    if (!type_result)
+        return ValueId::invalid();
 
     ValueId id = createNode(OpCode::kReduceSum, *type_result);
     auto* node = getNode(id);
@@ -195,10 +197,12 @@ ValueId IRBuilder::reduceSum(ValueId x, int axis) {
 
 ValueId IRBuilder::reduceMax(ValueId x, int axis) {
     auto* x_node = getNode(x);
-    if (!x_node) return ValueId::invalid();
+    if (!x_node)
+        return ValueId::invalid();
 
     auto type_result = TypeInferrer::inferReduction(x_node->type(), axis);
-    if (!type_result) return ValueId::invalid();
+    if (!type_result)
+        return ValueId::invalid();
 
     ValueId id = createNode(OpCode::kReduceMax, *type_result);
     auto* node = getNode(id);
@@ -209,10 +213,12 @@ ValueId IRBuilder::reduceMax(ValueId x, int axis) {
 
 ValueId IRBuilder::reduceMin(ValueId x, int axis) {
     auto* x_node = getNode(x);
-    if (!x_node) return ValueId::invalid();
+    if (!x_node)
+        return ValueId::invalid();
 
     auto type_result = TypeInferrer::inferReduction(x_node->type(), axis);
-    if (!type_result) return ValueId::invalid();
+    if (!type_result)
+        return ValueId::invalid();
 
     ValueId id = createNode(OpCode::kReduceMin, *type_result);
     auto* node = getNode(id);
@@ -245,7 +251,8 @@ ValueId IRBuilder::ge(ValueId lhs, ValueId rhs) {
 // Select
 ValueId IRBuilder::select(ValueId mask, ValueId true_val, ValueId false_val) {
     auto* true_node = getNode(true_val);
-    if (!true_node) return ValueId::invalid();
+    if (!true_node)
+        return ValueId::invalid();
 
     ValueId id = createNode(OpCode::kSelect, true_node->type());
     auto* node = getNode(id);
@@ -265,7 +272,8 @@ ValueId IRBuilder::load(ValueId ptr, TypeDesc element_type) {
 
 ValueId IRBuilder::store(ValueId ptr, ValueId value) {
     auto* value_node = getNode(value);
-    if (!value_node) return ValueId::invalid();
+    if (!value_node)
+        return ValueId::invalid();
 
     ValueId id = createNode(OpCode::kStore, TypeDesc());
     auto* node = getNode(id);
@@ -277,10 +285,12 @@ ValueId IRBuilder::store(ValueId ptr, ValueId value) {
 // Type conversions
 ValueId IRBuilder::cast(ValueId x, ScalarType target_type) {
     auto* x_node = getNode(x);
-    if (!x_node) return ValueId::invalid();
+    if (!x_node)
+        return ValueId::invalid();
 
     auto type_result = TypeInferrer::inferCast(x_node->type(), target_type);
-    if (!type_result) return ValueId::invalid();
+    if (!type_result)
+        return ValueId::invalid();
 
     ValueId id = createNode(OpCode::kCast, *type_result);
     auto* node = getNode(id);
@@ -310,14 +320,14 @@ Result<void> IRBuilder::validate() const {
         for (const auto& operand : node->operands()) {
             if (operand.id >= nodes_.size()) {
                 return Error(ErrorCode::kInvalidIR,
-                             fmt::format("Node %{} references invalid operand %{}",
-                                         node->id().id, operand.id));
+                             fmt::format("Node %{} references invalid operand %{}", node->id().id,
+                                         operand.id));
             }
             // Check operand is defined before use (SSA property)
             if (operand.id >= node->id().id) {
-                return Error(ErrorCode::kInvalidIR,
-                             fmt::format("Node %{} uses %{} before definition",
-                                         node->id().id, operand.id));
+                return Error(
+                    ErrorCode::kInvalidIR,
+                    fmt::format("Node %{} uses %{} before definition", node->id().id, operand.id));
             }
         }
     }
@@ -337,9 +347,7 @@ std::string IRBuilder::dump() const {
 // IRModule Implementation
 // =============================================================================
 
-IRModule::IRModule(std::string name)
-    : name_(std::move(name))
-    , builder_(arena_) {}
+IRModule::IRModule(std::string name) : name_(std::move(name)), builder_(arena_) {}
 
 Result<void> IRModule::optimize(int level) {
     if (level < 0 || level > 3) {

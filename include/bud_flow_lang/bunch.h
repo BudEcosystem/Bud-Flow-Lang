@@ -33,7 +33,7 @@ class MemoryPool;
 // =============================================================================
 
 class Bunch {
-public:
+  public:
     // Construction
     Bunch();
     ~Bunch();
@@ -131,7 +131,7 @@ public:
     // Debug
     [[nodiscard]] std::string toString() const;
 
-private:
+  private:
     explicit Bunch(std::shared_ptr<BunchImpl> impl);
     friend class BunchImpl;
     friend class Runtime;
@@ -155,20 +155,46 @@ inline Bunch operator*(float scalar, const Bunch& bunch) {
 // Free Function Math Operations
 // =============================================================================
 
-inline Bunch abs(const Bunch& x) { return x.abs(); }
-inline Bunch sqrt(const Bunch& x) { return x.sqrt(); }
-inline Bunch rsqrt(const Bunch& x) { return x.rsqrt(); }
-inline Bunch exp(const Bunch& x) { return x.exp(); }
-inline Bunch log(const Bunch& x) { return x.log(); }
-inline Bunch sin(const Bunch& x) { return x.sin(); }
-inline Bunch cos(const Bunch& x) { return x.cos(); }
-inline Bunch tanh(const Bunch& x) { return x.tanh(); }
+inline Bunch abs(const Bunch& x) {
+    return x.abs();
+}
+inline Bunch sqrt(const Bunch& x) {
+    return x.sqrt();
+}
+inline Bunch rsqrt(const Bunch& x) {
+    return x.rsqrt();
+}
+inline Bunch exp(const Bunch& x) {
+    return x.exp();
+}
+inline Bunch log(const Bunch& x) {
+    return x.log();
+}
+inline Bunch sin(const Bunch& x) {
+    return x.sin();
+}
+inline Bunch cos(const Bunch& x) {
+    return x.cos();
+}
+inline Bunch tanh(const Bunch& x) {
+    return x.tanh();
+}
 
-inline float sum(const Bunch& x) { return x.sum(); }
-inline float max(const Bunch& x) { return x.max(); }
-inline float min(const Bunch& x) { return x.min(); }
-inline float mean(const Bunch& x) { return x.mean(); }
-inline float dot(const Bunch& a, const Bunch& b) { return a.dot(b); }
+inline float sum(const Bunch& x) {
+    return x.sum();
+}
+inline float max(const Bunch& x) {
+    return x.max();
+}
+inline float min(const Bunch& x) {
+    return x.min();
+}
+inline float mean(const Bunch& x) {
+    return x.mean();
+}
+inline float dot(const Bunch& a, const Bunch& b) {
+    return a.dot(b);
+}
 
 // =============================================================================
 // Fused Operations

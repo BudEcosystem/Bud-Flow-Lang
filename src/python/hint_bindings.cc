@@ -2,9 +2,9 @@
 // Bud Flow Lang - CompileHint Python Bindings
 // =============================================================================
 
-#include <nanobind/nanobind.h>
-
 #include "bud_flow_lang/bud_flow_lang.h"
+
+#include <nanobind/nanobind.h>
 
 namespace nb = nanobind;
 

@@ -2,9 +2,9 @@
 // Bud Flow Lang - Arena Allocator Benchmarks
 // =============================================================================
 
-#include <nanobench.h>
-
 #include "bud_flow_lang/arena.h"
+
+#include <nanobench.h>
 
 namespace bud {
 
@@ -22,7 +22,10 @@ void benchArena() {
 
     bench.run("Arena: Create 1000 objects", [&] {
         Arena arena;
-        struct Obj { int x; float y; };
+        struct Obj {
+            int x;
+            float y;
+        };
         for (int i = 0; i < 1000; ++i) {
             auto* obj = arena.create<Obj>();
             ankerl::nanobench::doNotOptimizeAway(obj);

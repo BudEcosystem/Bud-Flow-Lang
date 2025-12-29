@@ -4,12 +4,13 @@
 
 #include "bud_flow_lang/type_system.h"
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-    if (size < 4) return 0;
+    if (size < 4)
+        return 0;
 
     // Use fuzz data to create shapes
     size_t rank1 = data[0] % 5;

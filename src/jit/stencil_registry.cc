@@ -6,8 +6,8 @@
 // Each stencil is a template with "holes" that get patched at runtime.
 //
 
-#include "bud_flow_lang/jit/stencil.h"
 #include "bud_flow_lang/common.h"
+#include "bud_flow_lang/jit/stencil.h"
 
 #include <spdlog/spdlog.h>
 
@@ -22,7 +22,7 @@ namespace jit {
 // =============================================================================
 
 class StencilRegistry {
-public:
+  public:
     static StencilRegistry& instance() {
         static StencilRegistry registry;
         return registry;
@@ -32,8 +32,7 @@ public:
     void registerStencil(Stencil stencil) {
         auto key = makeKey(stencil.op, stencil.dtype);
         stencils_[key] = std::move(stencil);
-        spdlog::debug("Registered stencil: {} ({})",
-                      stencils_[key].name, key);
+        spdlog::debug("Registered stencil: {} ({})", stencils_[key].name, key);
     }
 
     // Look up a stencil
@@ -47,14 +46,12 @@ public:
     }
 
     // Check if a stencil exists
-    bool has(ir::OpCode op, ScalarType dtype) const {
-        return find(op, dtype) != nullptr;
-    }
+    bool has(ir::OpCode op, ScalarType dtype) const { return find(op, dtype) != nullptr; }
 
     // Get all registered stencils
     size_t count() const { return stencils_.size(); }
 
-private:
+  private:
     StencilRegistry() {
         // Initialize with built-in stencils
         initializeBuiltinStencils();
@@ -63,8 +60,7 @@ private:
     void initializeBuiltinStencils();
 
     static std::string makeKey(ir::OpCode op, ScalarType dtype) {
-        return std::string(ir::opCodeName(op)) + "_" +
-               std::string(scalarTypeName(dtype));
+        return std::string(ir::opCodeName(op)) + "_" + std::string(scalarTypeName(dtype));
     }
 
     std::unordered_map<std::string, Stencil> stencils_;
