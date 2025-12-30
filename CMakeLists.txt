@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(bud_flow_lang
     VERSION 0.1.0
     DESCRIPTION "Python DSL for SIMD Programming with JIT Compilation"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 # ============================================================================
@@ -41,15 +41,18 @@ endif()
 # ============================================================================
 # Compiler Flags
 # ============================================================================
+# Common warning flags (applied globally)
+set(BUD_COMMON_WARNINGS
+    -Wall -Wextra -Wpedantic
+    -Werror=return-type
+    -Werror=uninitialized
+    -Wno-unused-parameter
+)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(
-        -Wall -Wextra -Wpedantic
-        -Werror=return-type
-        -Werror=uninitialized
-        -Wno-unused-parameter
-        -fno-rtti                      # LLVM-style: no RTTI
-        # Note: spdlog requires exceptions, so we can't use -fno-exceptions
-    )
+    add_compile_options(${BUD_COMMON_WARNINGS})
+    # Note: -fno-rtti is applied per-target for core library only
+    # nanobind and Python bindings require RTTI
 
     # Release flags
     set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
@@ -236,6 +239,15 @@ if(BUD_JIT_ENABLE_MIR)
         add_library(mir_jit STATIC ${MIR_SOURCES})
         target_include_directories(mir_jit PUBLIC ${mir_SOURCE_DIR})
         target_compile_definitions(mir_jit PRIVATE MIR_NO_IO=1)
+        # Disable warnings for third-party MIR library (C code with intentional patterns)
+        target_compile_options(mir_jit PRIVATE
+            -Wno-error=uninitialized
+            -Wno-error=maybe-uninitialized
+            -Wno-uninitialized
+            -Wno-maybe-uninitialized
+            -Wno-unused-but-set-variable
+            -Wno-unused-variable
+        )
         set(MIR_FOUND TRUE)
     endif()
 endif()
@@ -255,6 +267,7 @@ set(BUD_CORE_SOURCES
     src/core/hardware_detect.cc
     src/ir/ir_node.cc
     src/ir/ir_builder.cc
+    src/ir/ir_interpreter.cc
     src/ir/optimizer.cc
     src/ir/lazy_evaluator.cc
     src/jit/stencil_registry.cc
@@ -263,19 +276,33 @@ set(BUD_CORE_SOURCES
     src/runtime/bunch.cc
     src/runtime/executor.cc
     src/runtime/memory_pool.cc
+    src/codegen/hwy_ops.cc
+    src/codegen/fused_kernel.cc
+    # Memory optimization
+    src/memory/cache_config.cc
+    src/memory/prefetch.cc
+    src/memory/numa_allocator.cc
+    src/memory/tiled_executor.cc
 )
 
 add_library(bud_flow_core STATIC ${BUD_CORE_SOURCES})
 target_include_directories(bud_flow_core PUBLIC
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src/codegen  # For hwy_ops-inl.h
     ${CMAKE_BINARY_DIR}/_deps/highway-src  # Highway includes
 )
 target_link_libraries(bud_flow_core PUBLIC
     hwy
+    hwy_contrib
     fmt::fmt
     spdlog::spdlog
     nlohmann_json::nlohmann_json
 )
+
+# LLVM-style: disable RTTI for core library (not for Python bindings)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(bud_flow_core PRIVATE -fno-rtti)
+endif()
 
 # Conditional linking
 if(SIMD_BENCH_FOUND)
@@ -292,14 +319,23 @@ endif()
 # Python Module
 # ============================================================================
 if(BUD_BUILD_PYTHON)
+    # Enable RTTI for nanobind (required for typeid)
+    # Note: We re-enable RTTI specifically for Python bindings since nanobind needs it
     nanobind_add_module(bud_flow_lang_py
         NB_STATIC  # Static linking for standalone wheel
         src/python/module.cc
         src/python/bunch_bindings.cc
         src/python/flow_bindings.cc
         src/python/hint_bindings.cc
+        src/python/tracing_context.cc
     )
     target_link_libraries(bud_flow_lang_py PRIVATE bud_flow_core)
+    target_include_directories(bud_flow_lang_py PRIVATE ${CMAKE_SOURCE_DIR}/src/python)
+
+    # Override -fno-rtti for the Python module (nanobind requires RTTI)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(bud_flow_lang_py PRIVATE -frtti)
+    endif()
 
     # Generate stubs for IDE support
     nanobind_add_stub(
@@ -324,6 +360,11 @@ if(BUD_BUILD_TESTS)
         tests/jit/copy_patch_test.cc
         tests/runtime/bunch_test.cc
         tests/integration/e2e_test.cc
+        tests/integration/test_simple.cc
+        tests/codegen/hwy_ops_test.cc
+        tests/unit/test_memory_optimization.cc
+        tests/stress/test_stress.cc
+        tests/limits/test_limits.cc
     )
     target_link_libraries(bud_tests PRIVATE
         bud_flow_core
@@ -331,6 +372,10 @@ if(BUD_BUILD_TESTS)
         GTest::gtest_main
         GTest::gmock
     )
+    # Match core library RTTI setting
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(bud_tests PRIVATE -fno-rtti)
+    endif()
     gtest_discover_tests(bud_tests)
 
     # Add test target
@@ -354,6 +399,10 @@ if(BUD_BUILD_BENCHMARKS)
         bud_flow_core
         nanobench
     )
+    # Match core library RTTI setting
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(bud_benchmarks PRIVATE -fno-rtti)
+    endif()
 endif()
 
 # ============================================================================
@@ -361,12 +410,12 @@ endif()
 # ============================================================================
 if(BUD_BUILD_FUZZERS)
     add_executable(fuzz_ir_parser fuzz/fuzz_ir_parser.cc)
-    target_compile_options(fuzz_ir_parser PRIVATE -fsanitize=fuzzer,address)
+    target_compile_options(fuzz_ir_parser PRIVATE -fsanitize=fuzzer,address -fno-rtti)
     target_link_options(fuzz_ir_parser PRIVATE -fsanitize=fuzzer,address)
     target_link_libraries(fuzz_ir_parser PRIVATE bud_flow_core)
 
     add_executable(fuzz_type_inference fuzz/fuzz_type_inference.cc)
-    target_compile_options(fuzz_type_inference PRIVATE -fsanitize=fuzzer,address)
+    target_compile_options(fuzz_type_inference PRIVATE -fsanitize=fuzzer,address -fno-rtti)
     target_link_options(fuzz_type_inference PRIVATE -fsanitize=fuzzer,address)
     target_link_libraries(fuzz_type_inference PRIVATE bud_flow_core)
 endif()
@@ -376,9 +425,15 @@ endif()
 # ============================================================================
 add_executable(example_basic examples/basic_usage.cc)
 target_link_libraries(example_basic PRIVATE bud_flow_core)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(example_basic PRIVATE -fno-rtti)
+endif()
 
 add_executable(example_vectorize examples/auto_vectorize.cc)
 target_link_libraries(example_vectorize PRIVATE bud_flow_core)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(example_vectorize PRIVATE -fno-rtti)
+endif()
 
 # ============================================================================
 # Code Quality Targets

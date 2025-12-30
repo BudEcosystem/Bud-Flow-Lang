@@ -8,6 +8,8 @@
 // instead of exceptions. All functions that can fail return Result<T>.
 //
 
+#include "bud_flow_lang/common.h"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -64,6 +66,10 @@ enum class ErrorCode : uint32_t {
     // Hardware errors (7xx)
     kHardwareNotSupported = 700,
     kIsaNotAvailable = 701,
+
+    // General errors (8xx)
+    kNotSupported = 800,
+    kRuntimeError = 801,
 
     // Internal errors (9xx)
     kInternalError = 900,
@@ -140,11 +146,27 @@ class Result {
         return hasValue() ? value() : std::move(default_value);
     }
 
-    // Pointer-like access
-    T* operator->() { return &value(); }
-    const T* operator->() const { return &value(); }
-    T& operator*() & { return value(); }
-    const T& operator*() const& { return value(); }
+    // Pointer-like access (asserts hasValue() - do not use on error Results)
+    T* operator->() {
+        BUD_ASSERT(hasValue() && "Dereferencing error Result via operator->");
+        return &std::get<T>(data_);
+    }
+    const T* operator->() const {
+        BUD_ASSERT(hasValue() && "Dereferencing error Result via operator->");
+        return &std::get<T>(data_);
+    }
+    T& operator*() & {
+        BUD_ASSERT(hasValue() && "Dereferencing error Result via operator*");
+        return std::get<T>(data_);
+    }
+    const T& operator*() const& {
+        BUD_ASSERT(hasValue() && "Dereferencing error Result via operator*");
+        return std::get<T>(data_);
+    }
+    T&& operator*() && {
+        BUD_ASSERT(hasValue() && "Dereferencing error Result via operator*");
+        return std::get<T>(std::move(data_));
+    }
 
   private:
     std::variant<T, Error> data_;

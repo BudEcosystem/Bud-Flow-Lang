@@ -27,6 +27,12 @@ namespace bud {
 // Forward declarations
 class BunchImpl;
 class MemoryPool;
+class TracingContext;
+
+namespace ir {
+class IRModule;
+struct ValueId;
+}  // namespace ir
 
 // =============================================================================
 // Bunch - User-Facing Handle
@@ -131,12 +137,58 @@ class Bunch {
     // Debug
     [[nodiscard]] std::string toString() const;
 
+    // =========================================================================
+    // Tracing Support (for @flow.kernel)
+    // =========================================================================
+
+    // Check if this Bunch is in tracing mode (recording ops to IR)
+    [[nodiscard]] bool isTracing() const;
+
+    // Get the IR value ID for this Bunch (only valid if tracing)
+    [[nodiscard]] ir::ValueId tracingValueId() const;
+
+    // Set tracing state (called by TracingContext::createTracerInput)
+    void setTracingState(ir::IRModule* module, ir::ValueId value_id);
+
+    // Create a Bunch from an IR value (for intermediate results during tracing)
+    static Bunch fromTracingValue(ir::IRModule* module, ir::ValueId value_id, size_t count,
+                                  ScalarType dtype);
+
   private:
     explicit Bunch(std::shared_ptr<BunchImpl> impl);
     friend class BunchImpl;
     friend class Runtime;
+    friend class TracingContext;
 
     std::shared_ptr<BunchImpl> impl_;
+};
+
+// =============================================================================
+// Lazy Evaluation Control
+// =============================================================================
+
+// Enable/disable lazy evaluation mode
+// When enabled, Bunch operations build an IR graph instead of executing immediately
+// Call eval() on the result to force evaluation with fusion optimization
+void setLazyMode(bool enabled);
+
+// Check if lazy mode is currently enabled
+[[nodiscard]] bool isLazyMode();
+
+// RAII guard for temporary lazy mode changes
+class LazyModeGuard {
+  public:
+    explicit LazyModeGuard(bool enable_lazy) : prev_mode_(isLazyMode()) {
+        setLazyMode(enable_lazy);
+    }
+    ~LazyModeGuard() { setLazyMode(prev_mode_); }
+
+    // Non-copyable
+    LazyModeGuard(const LazyModeGuard&) = delete;
+    LazyModeGuard& operator=(const LazyModeGuard&) = delete;
+
+  private:
+    bool prev_mode_;
 };
 
 // =============================================================================

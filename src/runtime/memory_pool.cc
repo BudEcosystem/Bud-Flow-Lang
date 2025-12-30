@@ -132,18 +132,13 @@ class MemoryPool {
 };
 
 // =============================================================================
-// Global Memory Pool
+// Global Memory Pool (Thread-Safe Meyer's Singleton)
 // =============================================================================
 
-namespace {
-MemoryPool* g_memory_pool = nullptr;
-}
-
 MemoryPool& getMemoryPool() {
-    if (!g_memory_pool) {
-        g_memory_pool = new MemoryPool();
-    }
-    return *g_memory_pool;
+    // Meyer's singleton - thread-safe initialization guaranteed by C++11
+    static MemoryPool instance;
+    return instance;
 }
 
 void* poolAllocate(size_t size) {
@@ -151,14 +146,13 @@ void* poolAllocate(size_t size) {
 }
 
 void poolReset() {
-    if (g_memory_pool) {
-        g_memory_pool->reset();
-    }
+    getMemoryPool().reset();
 }
 
 void shutdownMemoryPool() {
-    delete g_memory_pool;
-    g_memory_pool = nullptr;
+    // With Meyer's singleton, destruction happens automatically at program exit
+    // Reset the pool to free memory but the pool instance remains valid
+    getMemoryPool().reset();
 }
 
 }  // namespace bud

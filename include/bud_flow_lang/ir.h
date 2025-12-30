@@ -176,6 +176,26 @@ class IRNode {
     [[nodiscard]] ValueId operand(size_t i) const { return operands_[i]; }
     [[nodiscard]] const std::vector<ValueId>& operands() const { return operands_; }
 
+    // Operand mutation (for optimization passes)
+    void setOperand(size_t i, ValueId new_operand) {
+        if (i < operands_.size()) {
+            operands_[i] = new_operand;
+        }
+    }
+    void replaceOperand(ValueId old_val, ValueId new_val);
+    void clearOperands() { operands_.clear(); }
+
+    // Dead code marking (for DCE pass)
+    [[nodiscard]] bool isDead() const { return dead_; }
+    void markDead() { dead_ = true; }
+    void markLive() { dead_ = false; }
+
+    // ID remapping (for compaction)
+    void setId(ValueId new_id) { id_ = new_id; }
+
+    // Type mutation (for type inference refinement)
+    void setType(TypeDesc new_type) { type_ = new_type; }
+
     // Attributes (operation-specific data)
     void setIntAttr(std::string_view name, int64_t value);
     void setFloatAttr(std::string_view name, double value);
@@ -184,6 +204,7 @@ class IRNode {
     [[nodiscard]] int64_t intAttr(std::string_view name, int64_t default_val = 0) const;
     [[nodiscard]] double floatAttr(std::string_view name, double default_val = 0.0) const;
     [[nodiscard]] std::string_view stringAttr(std::string_view name) const;
+    [[nodiscard]] bool hasAttr(std::string_view name) const;
 
     // Debug
     [[nodiscard]] std::string toString() const;
@@ -193,6 +214,7 @@ class IRNode {
     TypeDesc type_;
     ValueId id_;
     std::vector<ValueId> operands_;
+    bool dead_ = false;  // For dead code elimination
 
     // Attributes stored inline for common cases
     struct AttrValue {
@@ -269,6 +291,46 @@ class IRBuilder {
 
     // Get all nodes
     [[nodiscard]] const std::vector<IRNode*>& nodes() const { return nodes_; }
+    [[nodiscard]] std::vector<IRNode*>& mutableNodes() { return nodes_; }
+
+    // Get live (non-dead) node count
+    [[nodiscard]] size_t liveNodeCount() const;
+
+    // =========================================================================
+    // IR Mutation Methods (for optimization passes)
+    // =========================================================================
+
+    // Replace all uses of old_id with new_id throughout the IR
+    // Returns the number of replacements made
+    size_t replaceAllUses(ValueId old_id, ValueId new_id);
+
+    // Mark a node as dead (will be removed by compactNodes)
+    void markDead(ValueId id);
+
+    // Mark a node as dead if it has no uses (recursive dead code elimination)
+    // Returns true if the node was marked dead
+    bool markDeadIfUnused(ValueId id);
+
+    // Remove all dead nodes and renumber remaining nodes
+    // Updates all operand references to use new IDs
+    // Returns the number of nodes removed
+    size_t compactNodes();
+
+    // Check if a value is used by any live node
+    [[nodiscard]] bool hasUses(ValueId id) const;
+
+    // Count how many times a value is used
+    [[nodiscard]] size_t useCount(ValueId id) const;
+
+    // Find all nodes that use a given value
+    [[nodiscard]] std::vector<ValueId> findUses(ValueId id) const;
+
+    // Replace a node with a new operation (for peephole optimization)
+    // The replacement node reuses the same ID
+    void replaceNode(ValueId id, OpCode new_op, const std::vector<ValueId>& new_operands);
+
+    // Clone a node with new operands (for fusion)
+    ValueId cloneNode(ValueId source_id, const std::vector<ValueId>& new_operands);
 
     // Validation
     [[nodiscard]] Result<void> validate() const;
@@ -297,6 +359,7 @@ class IRModule {
     [[nodiscard]] const std::string& name() const { return name_; }
     [[nodiscard]] Arena& arena() { return arena_; }
     [[nodiscard]] IRBuilder& builder() { return builder_; }
+    [[nodiscard]] const IRBuilder& builder() const { return builder_; }
 
     // Entry point for the module (output values)
     void setOutput(ValueId output) { output_ = output; }
@@ -315,6 +378,35 @@ class IRModule {
     IRBuilder builder_;
     ValueId output_ = ValueId::invalid();
 };
+
+// =============================================================================
+// Fusion Analysis (from lazy_evaluator.cc)
+// =============================================================================
+
+// Analyze fusion opportunities for an IR module
+// Returns pairs of (pattern_name, estimated_speedup)
+std::vector<std::pair<std::string, double>> analyzeFusionOpportunities(const IRModule& module);
+
+// Get estimated speedup from fusion for an IR module
+double estimateFusionSpeedup(const IRModule& module);
+
+// =============================================================================
+// IR Interpreter (from ir_interpreter.cc)
+// =============================================================================
+
+// Execute an IR graph and store result in provided buffer
+// inputs: vector of (ValueId, data pointer) pairs for external inputs
+// input_sizes: vector of (ValueId, element count) pairs
+// input_types: vector of (ValueId, ScalarType) pairs
+Result<void> executeIR(const IRBuilder& builder, ValueId output, void* result_data,
+                       size_t result_size, ScalarType result_dtype,
+                       const std::vector<std::pair<ValueId, void*>>& inputs,
+                       const std::vector<std::pair<ValueId, size_t>>& input_sizes,
+                       const std::vector<std::pair<ValueId, ScalarType>>& input_types);
+
+// Simplified overload - no external inputs
+Result<void> executeIR(const IRBuilder& builder, ValueId output, void* result_data,
+                       size_t result_size, ScalarType result_dtype);
 
 }  // namespace ir
 }  // namespace bud

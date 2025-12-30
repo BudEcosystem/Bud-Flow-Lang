@@ -77,7 +77,10 @@ class Shape {
 
     // Accessors
     [[nodiscard]] size_t rank() const { return rank_; }
-    [[nodiscard]] size_t operator[](size_t i) const { return dims_[i]; }
+    [[nodiscard]] size_t operator[](size_t i) const {
+        BUD_BOUNDS_CHECK(i < rank_ && "Shape index out of bounds");
+        return dims_[i];
+    }
     [[nodiscard]] size_t totalElements() const;
 
     // Iterators
@@ -85,7 +88,10 @@ class Shape {
     [[nodiscard]] const size_t* end() const { return dims_.data() + rank_; }
 
     // Modification
-    void setDim(size_t i, size_t value) { dims_[i] = value; }
+    void setDim(size_t i, size_t value) {
+        BUD_BOUNDS_CHECK(i < rank_ && "Shape setDim index out of bounds");
+        dims_[i] = value;
+    }
 
     // Broadcasting
     [[nodiscard]] static Result<Shape> broadcast(const Shape& a, const Shape& b);
@@ -135,12 +141,43 @@ class TypeDesc {
     // String representation
     [[nodiscard]] std::string toString() const;
 
-    // Factory methods
+    // Factory methods for scalar types (matching Highway's supported types)
+    // Floating point
+    static TypeDesc f16() { return TypeDesc(ScalarType::kFloat16); }
     static TypeDesc f32() { return TypeDesc(ScalarType::kFloat32); }
     static TypeDesc f64() { return TypeDesc(ScalarType::kFloat64); }
+    static TypeDesc bf16() { return TypeDesc(ScalarType::kBFloat16); }
+
+    // Signed integers
+    static TypeDesc i8() { return TypeDesc(ScalarType::kInt8); }
+    static TypeDesc i16() { return TypeDesc(ScalarType::kInt16); }
     static TypeDesc i32() { return TypeDesc(ScalarType::kInt32); }
     static TypeDesc i64() { return TypeDesc(ScalarType::kInt64); }
+
+    // Unsigned integers
+    static TypeDesc u8() { return TypeDesc(ScalarType::kUint8); }
+    static TypeDesc u16() { return TypeDesc(ScalarType::kUint16); }
+    static TypeDesc u32() { return TypeDesc(ScalarType::kUint32); }
+    static TypeDesc u64() { return TypeDesc(ScalarType::kUint64); }
+
+    // Boolean
+    static TypeDesc boolean() { return TypeDesc(ScalarType::kBool); }
+
+    // Vector factory methods
+    static TypeDesc f16Vector(size_t n) { return TypeDesc(ScalarType::kFloat16, Shape::vector(n)); }
     static TypeDesc f32Vector(size_t n) { return TypeDesc(ScalarType::kFloat32, Shape::vector(n)); }
+    static TypeDesc f64Vector(size_t n) { return TypeDesc(ScalarType::kFloat64, Shape::vector(n)); }
+    static TypeDesc bf16Vector(size_t n) {
+        return TypeDesc(ScalarType::kBFloat16, Shape::vector(n));
+    }
+    static TypeDesc i8Vector(size_t n) { return TypeDesc(ScalarType::kInt8, Shape::vector(n)); }
+    static TypeDesc i16Vector(size_t n) { return TypeDesc(ScalarType::kInt16, Shape::vector(n)); }
+    static TypeDesc i32Vector(size_t n) { return TypeDesc(ScalarType::kInt32, Shape::vector(n)); }
+    static TypeDesc i64Vector(size_t n) { return TypeDesc(ScalarType::kInt64, Shape::vector(n)); }
+    static TypeDesc u8Vector(size_t n) { return TypeDesc(ScalarType::kUint8, Shape::vector(n)); }
+    static TypeDesc u16Vector(size_t n) { return TypeDesc(ScalarType::kUint16, Shape::vector(n)); }
+    static TypeDesc u32Vector(size_t n) { return TypeDesc(ScalarType::kUint32, Shape::vector(n)); }
+    static TypeDesc u64Vector(size_t n) { return TypeDesc(ScalarType::kUint64, Shape::vector(n)); }
 
   private:
     ScalarType scalar_type_ = ScalarType::kUnknown;

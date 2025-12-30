@@ -25,6 +25,16 @@ namespace bud {
 }
 
 // =============================================================================
+// Bounds Check Failure (Always Active - Security Critical)
+// =============================================================================
+
+[[noreturn]] void boundsFailed(const char* cond, const char* file, int line) {
+    spdlog::critical("SECURITY: Bounds check failed: {} at {}:{}", cond, file, line);
+    std::fflush(stderr);
+    std::abort();
+}
+
+// =============================================================================
 // Error Code to String
 // =============================================================================
 
@@ -102,6 +112,12 @@ std::string_view errorCodeToString(ErrorCode code) {
         return "HardwareNotSupported";
     case ErrorCode::kIsaNotAvailable:
         return "IsaNotAvailable";
+
+    // General errors
+    case ErrorCode::kNotSupported:
+        return "NotSupported";
+    case ErrorCode::kRuntimeError:
+        return "RuntimeError";
 
     // Internal errors
     case ErrorCode::kInternalError:

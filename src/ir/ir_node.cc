@@ -179,6 +179,23 @@ std::string_view IRNode::stringAttr(std::string_view name) const {
     return "";
 }
 
+bool IRNode::hasAttr(std::string_view name) const {
+    for (const auto& attr : attrs_) {
+        if (attr.name == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void IRNode::replaceOperand(ValueId old_val, ValueId new_val) {
+    for (auto& operand : operands_) {
+        if (operand == old_val) {
+            operand = new_val;
+        }
+    }
+}
+
 std::string IRNode::toString() const {
     std::string result = fmt::format("%{} = {} : {}", id_.id, opCodeName(op_), type_.toString());
 

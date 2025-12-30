@@ -64,6 +64,12 @@ void* ArenaBlock::allocate(size_t size, size_t alignment) {
     uintptr_t aligned = alignUp(current, alignment);
     char* result = reinterpret_cast<char*>(aligned);
 
+    // Overflow check: ensure result + size won't overflow
+    uintptr_t result_addr = reinterpret_cast<uintptr_t>(result);
+    if (size > UINTPTR_MAX - result_addr) {
+        return nullptr;  // Overflow would occur
+    }
+
     // Check if we have enough space
     if (result + size > end_) {
         return nullptr;
@@ -82,21 +88,28 @@ Arena::Arena(ArenaConfig config) : config_(std::move(config)) {
     addBlock(config_.initial_block_size);
 }
 
+Arena::~Arena() {
+    callDestructors();
+}
+
 Arena::Arena(Arena&& other) noexcept
     : config_(std::move(other.config_)),
       blocks_(std::move(other.blocks_)),
       current_block_(other.current_block_),
-      total_allocated_(other.total_allocated_) {
+      total_allocated_(other.total_allocated_),
+      destructors_(std::move(other.destructors_)) {
     other.current_block_ = 0;
     other.total_allocated_ = 0;
 }
 
 Arena& Arena::operator=(Arena&& other) noexcept {
     if (this != &other) {
+        callDestructors();
         config_ = std::move(other.config_);
         blocks_ = std::move(other.blocks_);
         current_block_ = other.current_block_;
         total_allocated_ = other.total_allocated_;
+        destructors_ = std::move(other.destructors_);
         other.current_block_ = 0;
         other.total_allocated_ = 0;
     }
@@ -137,10 +150,21 @@ void* Arena::allocate(size_t size, size_t alignment) {
     // Need to add a new block
     size_t block_size = config_.initial_block_size;
     if (config_.grow_exponentially && !blocks_.empty()) {
-        block_size = std::min(blocks_.back().capacity() * 2, config_.max_block_size);
+        size_t last_capacity = blocks_.back().capacity();
+        // Overflow check: ensure capacity * 2 won't overflow
+        if (last_capacity <= SIZE_MAX / 2) {
+            block_size = std::min(last_capacity * 2, config_.max_block_size);
+        } else {
+            block_size = config_.max_block_size;  // Cap at max if overflow would occur
+        }
     }
 
     // Ensure block is large enough for this allocation
+    // Overflow check: ensure size + alignment won't overflow
+    if (alignment > SIZE_MAX - size) {
+        spdlog::error("Arena: Allocation size {} + alignment {} would overflow", size, alignment);
+        return nullptr;
+    }
     block_size = std::max(block_size, size + alignment);
     addBlock(block_size);
 
@@ -154,6 +178,7 @@ void* Arena::allocate(size_t size, size_t alignment) {
 }
 
 void Arena::reset() {
+    callDestructors();
     for (auto& block : blocks_) {
         block.reset();
     }
@@ -175,6 +200,32 @@ size_t Arena::totalCapacity() const {
 
 void Arena::addBlock(size_t min_size) {
     blocks_.emplace_back(min_size);
+}
+
+void Arena::registerDestructor(void* ptr, void (*dtor)(void*)) {
+    destructors_.push_back({ptr, 1, 0, dtor});
+}
+
+void Arena::registerArrayDestructor(void* ptr, size_t count, size_t element_size,
+                                    void (*dtor)(void*)) {
+    destructors_.push_back({ptr, count, element_size, dtor});
+}
+
+void Arena::callDestructors() {
+    // Call destructors in reverse order (LIFO)
+    for (auto it = destructors_.rbegin(); it != destructors_.rend(); ++it) {
+        if (it->count == 1) {
+            // Single object
+            it->dtor(it->ptr);
+        } else {
+            // Array: call destructor for each element in reverse order
+            char* base = static_cast<char*>(it->ptr);
+            for (size_t i = it->count; i > 0; --i) {
+                it->dtor(base + (i - 1) * it->element_size);
+            }
+        }
+    }
+    destructors_.clear();
 }
 
 // =============================================================================

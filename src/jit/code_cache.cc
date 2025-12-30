@@ -164,29 +164,23 @@ class CodeCache {
 };
 
 // =============================================================================
-// Global Cache Instance
+// Global Cache Instance (Thread-Safe Meyer's Singleton)
 // =============================================================================
 
-namespace {
-CodeCache* g_code_cache = nullptr;
-}
-
 CodeCache& getCodeCache() {
-    if (!g_code_cache) {
-        g_code_cache = new CodeCache();
-    }
-    return *g_code_cache;
+    // Meyer's singleton - thread-safe initialization guaranteed by C++11
+    static CodeCache instance;
+    return instance;
 }
 
 void resetCodeCache() {
-    if (g_code_cache) {
-        g_code_cache->clear();
-    }
+    getCodeCache().clear();
 }
 
 void shutdownCodeCache() {
-    delete g_code_cache;
-    g_code_cache = nullptr;
+    // With Meyer's singleton, destruction happens automatically at program exit
+    // This function is kept for API compatibility but does nothing
+    // (The cache will be cleared when the static instance is destroyed)
 }
 
 }  // namespace jit

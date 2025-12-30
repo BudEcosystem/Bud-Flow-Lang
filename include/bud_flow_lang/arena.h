@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 namespace bud {
@@ -67,7 +68,7 @@ class ArenaBlock : NonCopyable {
 class Arena : NonCopyable {
   public:
     explicit Arena(ArenaConfig config = {});
-    ~Arena() = default;
+    ~Arena();
 
     Arena(Arena&& other) noexcept;
     Arena& operator=(Arena&& other) noexcept;
@@ -76,21 +77,30 @@ class Arena : NonCopyable {
     [[nodiscard]] void* allocate(size_t size);
     [[nodiscard]] void* allocate(size_t size, size_t alignment);
 
-    // Allocate and construct object
+    // Allocate and construct object (with destructor tracking for non-trivial types)
     template <typename T, typename... Args>
     [[nodiscard]] T* create(Args&&... args) {
         static_assert(alignof(T) <= kSimdAlignment, "Type alignment exceeds SIMD alignment");
         void* ptr = allocate(sizeof(T), alignof(T));
         if (!ptr)
             return nullptr;
-        return new (ptr) T(std::forward<Args>(args)...);
+        T* obj = new (ptr) T(std::forward<Args>(args)...);
+        // Register destructor if type has non-trivial destructor
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+            registerDestructor(obj, [](void* p) { static_cast<T*>(p)->~T(); });
+        }
+        return obj;
     }
 
-    // Allocate array
+    // Allocate array with overflow protection
     template <typename T>
     [[nodiscard]] T* allocateArray(size_t count) {
         if (count == 0)
             return nullptr;
+        // Integer overflow check: ensure sizeof(T) * count won't overflow
+        if (count > SIZE_MAX / sizeof(T)) {
+            return nullptr;  // Overflow would occur
+        }
         void* ptr = allocate(sizeof(T) * count, alignof(T));
         if (!ptr)
             return nullptr;
@@ -99,10 +109,15 @@ class Arena : NonCopyable {
         for (size_t i = 0; i < count; ++i) {
             new (&arr[i]) T();
         }
+        // Register destructor for non-trivial types
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+            registerArrayDestructor(arr, count, sizeof(T),
+                                    [](void* p) { static_cast<T*>(p)->~T(); });
+        }
         return arr;
     }
 
-    // Reset arena (deallocate all at once)
+    // Reset arena (deallocate all at once, calls destructors)
     void reset();
 
     // Statistics
@@ -112,11 +127,23 @@ class Arena : NonCopyable {
 
   private:
     void addBlock(size_t min_size);
+    void registerDestructor(void* ptr, void (*dtor)(void*));
+    void registerArrayDestructor(void* ptr, size_t count, size_t element_size, void (*dtor)(void*));
+    void callDestructors();
 
     ArenaConfig config_;
     std::vector<ArenaBlock> blocks_;
     size_t current_block_ = 0;
     size_t total_allocated_ = 0;
+
+    // Destructor tracking for objects with non-trivial destructors
+    struct DestructorEntry {
+        void* ptr;
+        size_t count;         // 1 for single objects, >1 for arrays
+        size_t element_size;  // Size of each element (for arrays)
+        void (*dtor)(void*);
+    };
+    std::vector<DestructorEntry> destructors_;
 };
 
 // =============================================================================

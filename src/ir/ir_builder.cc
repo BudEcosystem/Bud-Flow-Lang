@@ -18,6 +18,11 @@ IRBuilder::IRBuilder(Arena& arena) : arena_(arena) {}
 ValueId IRBuilder::createNode(OpCode op, TypeDesc type) {
     ValueId id{next_id_++};
     auto* node = arena_.create<IRNode>(op, type, id);
+    if (!node) {
+        // Allocation failed - revert id and return invalid
+        --next_id_;
+        return ValueId::invalid();
+    }
     nodes_.push_back(node);
     return id;
 }
@@ -36,7 +41,13 @@ ValueId IRBuilder::createBinaryOp(OpCode op, ValueId lhs, ValueId rhs) {
     }
 
     ValueId id = createNode(op, *type_result);
+    if (!id.isValid()) {
+        return ValueId::invalid();  // Allocation failed
+    }
     auto* node = getNode(id);
+    if (!node) {
+        return ValueId::invalid();  // Should not happen, but safety check
+    }
     node->addOperand(lhs);
     node->addOperand(rhs);
     return id;
@@ -54,7 +65,13 @@ ValueId IRBuilder::createUnaryOp(OpCode op, ValueId operand) {
     }
 
     ValueId id = createNode(op, *type_result);
+    if (!id.isValid()) {
+        return ValueId::invalid();
+    }
     auto* node = getNode(id);
+    if (!node) {
+        return ValueId::invalid();
+    }
     node->addOperand(operand);
     return id;
 }
@@ -62,14 +79,26 @@ ValueId IRBuilder::createUnaryOp(OpCode op, ValueId operand) {
 // Constants
 ValueId IRBuilder::constant(float value) {
     ValueId id = createNode(OpCode::kConstantScalar, TypeDesc::f32());
+    if (!id.isValid()) {
+        return ValueId::invalid();
+    }
     auto* node = getNode(id);
+    if (!node) {
+        return ValueId::invalid();
+    }
     node->setFloatAttr("value", static_cast<double>(value));
     return id;
 }
 
 ValueId IRBuilder::constant(double value) {
     ValueId id = createNode(OpCode::kConstantScalar, TypeDesc::f64());
+    if (!id.isValid()) {
+        return ValueId::invalid();
+    }
     auto* node = getNode(id);
+    if (!node) {
+        return ValueId::invalid();
+    }
     node->setFloatAttr("value", value);
     return id;
 }
@@ -311,6 +340,247 @@ const IRNode* IRBuilder::getNode(ValueId id) const {
         return nullptr;
     }
     return nodes_[id.id];
+}
+
+// =============================================================================
+// IR Mutation Methods
+// =============================================================================
+
+size_t IRBuilder::liveNodeCount() const {
+    size_t count = 0;
+    for (const auto* node : nodes_) {
+        if (node && !node->isDead()) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+size_t IRBuilder::replaceAllUses(ValueId old_id, ValueId new_id) {
+    if (!old_id.isValid() || !new_id.isValid()) {
+        return 0;
+    }
+
+    size_t replacement_count = 0;
+
+    // Iterate through all nodes and replace operands
+    for (auto* node : nodes_) {
+        if (!node || node->isDead()) {
+            continue;
+        }
+
+        // Replace operands that match old_id
+        for (size_t i = 0; i < node->numOperands(); ++i) {
+            if (node->operand(i) == old_id) {
+                node->setOperand(i, new_id);
+                ++replacement_count;
+            }
+        }
+    }
+
+    return replacement_count;
+}
+
+void IRBuilder::markDead(ValueId id) {
+    auto* node = getNode(id);
+    if (node) {
+        node->markDead();
+    }
+}
+
+bool IRBuilder::markDeadIfUnused(ValueId id) {
+    auto* node = getNode(id);
+    if (!node || node->isDead()) {
+        return false;
+    }
+
+    // Check if any live node uses this value
+    if (!hasUses(id)) {
+        node->markDead();
+
+        // Recursively mark operands as dead if they become unused
+        for (const auto& operand : node->operands()) {
+            markDeadIfUnused(operand);
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+size_t IRBuilder::compactNodes() {
+    // Build mapping from old IDs to new IDs
+    std::vector<ValueId> id_map(nodes_.size(), ValueId::invalid());
+    std::vector<IRNode*> new_nodes;
+    new_nodes.reserve(nodes_.size());
+
+    uint32_t new_id = 0;
+    for (size_t old_idx = 0; old_idx < nodes_.size(); ++old_idx) {
+        IRNode* node = nodes_[old_idx];
+        if (node && !node->isDead()) {
+            id_map[old_idx] = ValueId{new_id};
+            node->setId(ValueId{new_id});
+            new_nodes.push_back(node);
+            ++new_id;
+        }
+    }
+
+    size_t removed_count = nodes_.size() - new_nodes.size();
+
+    // Update all operand references in surviving nodes
+    for (auto* node : new_nodes) {
+        for (size_t i = 0; i < node->numOperands(); ++i) {
+            ValueId old_operand = node->operand(i);
+            if (old_operand.id < id_map.size() && id_map[old_operand.id].isValid()) {
+                node->setOperand(i, id_map[old_operand.id]);
+            }
+        }
+    }
+
+    // Replace old nodes vector
+    nodes_ = std::move(new_nodes);
+    next_id_ = new_id;
+
+    return removed_count;
+}
+
+bool IRBuilder::hasUses(ValueId id) const {
+    if (!id.isValid()) {
+        return false;
+    }
+
+    for (const auto* node : nodes_) {
+        if (!node || node->isDead()) {
+            continue;
+        }
+
+        // Don't count self-references
+        if (node->id() == id) {
+            continue;
+        }
+
+        for (const auto& operand : node->operands()) {
+            if (operand == id) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+size_t IRBuilder::useCount(ValueId id) const {
+    if (!id.isValid()) {
+        return 0;
+    }
+
+    size_t count = 0;
+    for (const auto* node : nodes_) {
+        if (!node || node->isDead()) {
+            continue;
+        }
+
+        // Don't count self-references
+        if (node->id() == id) {
+            continue;
+        }
+
+        for (const auto& operand : node->operands()) {
+            if (operand == id) {
+                ++count;
+            }
+        }
+    }
+
+    return count;
+}
+
+std::vector<ValueId> IRBuilder::findUses(ValueId id) const {
+    std::vector<ValueId> uses;
+
+    if (!id.isValid()) {
+        return uses;
+    }
+
+    for (const auto* node : nodes_) {
+        if (!node || node->isDead()) {
+            continue;
+        }
+
+        // Don't count self-references
+        if (node->id() == id) {
+            continue;
+        }
+
+        for (const auto& operand : node->operands()) {
+            if (operand == id) {
+                uses.push_back(node->id());
+                break;  // Only count each node once
+            }
+        }
+    }
+
+    return uses;
+}
+
+void IRBuilder::replaceNode(ValueId id, OpCode new_op, const std::vector<ValueId>& new_operands) {
+    auto* node = getNode(id);
+    if (!node) {
+        return;
+    }
+
+    // Clear existing operands and add new ones
+    node->clearOperands();
+    for (const auto& operand : new_operands) {
+        node->addOperand(operand);
+    }
+
+    // Note: OpCode and type cannot be changed after construction
+    // This is a simplified replacement that only changes operands
+    // For full replacement, would need to allocate a new node
+}
+
+ValueId IRBuilder::cloneNode(ValueId source_id, const std::vector<ValueId>& new_operands) {
+    const auto* source = getNode(source_id);
+    if (!source) {
+        return ValueId::invalid();
+    }
+
+    // Create a new node with the same opcode and type
+    ValueId new_id = createNode(source->opCode(), source->type());
+    if (!new_id.isValid()) {
+        return ValueId::invalid();
+    }
+
+    auto* new_node = getNode(new_id);
+    if (!new_node) {
+        return ValueId::invalid();
+    }
+
+    // Add operands
+    for (const auto& operand : new_operands) {
+        new_node->addOperand(operand);
+    }
+
+    // Copy attributes (simplified - would need full attribute copying)
+    // For now, just copy the most common attributes
+    if (source->hasAttr("value")) {
+        if (source->opCode() == OpCode::kConstantScalar) {
+            // Try to determine if it's int or float from the type
+            if (source->type().scalarType() == ScalarType::kFloat32 ||
+                source->type().scalarType() == ScalarType::kFloat64) {
+                new_node->setFloatAttr("value", source->floatAttr("value"));
+            } else {
+                new_node->setIntAttr("value", source->intAttr("value"));
+            }
+        }
+    }
+    if (source->hasAttr("axis")) {
+        new_node->setIntAttr("axis", source->intAttr("axis"));
+    }
+
+    return new_id;
 }
 
 // Validation

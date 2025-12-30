@@ -4,16 +4,38 @@
 
 #include "bud_flow_lang/bud_flow_lang.h"
 
+#include <cstdlib>  // For atexit
+
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 
 namespace nb = nanobind;
 
+// Global flag to track if we've registered the atexit handler
+static bool g_atexit_registered = false;
+
+// Cleanup function called at Python exit
+static void cleanup_at_exit() {
+    if (bud::isInitialized()) {
+        bud::shutdown();
+    }
+}
+
+// Forward declarations for binding functions defined in other files
+void bind_bunch(nb::module_& m);
+void bind_flow(nb::module_& m);
+void bind_hints(nb::module_& m);
+
 NB_MODULE(bud_flow_lang_py, m) {
-    m.doc() = "Bud Flow Lang - Python DSL for SIMD Programming";
+    m.doc() = "Bud Flow Lang - High-performance SIMD array library for Python";
 
     // Version
     m.attr("__version__") = bud::Version::string();
+
+    // Register class bindings
+    bind_bunch(m);
+    bind_flow(m);
+    bind_hints(m);
 
     // Initialize/shutdown
     m.def(
@@ -22,6 +44,11 @@ NB_MODULE(bud_flow_lang_py, m) {
             auto result = bud::initialize();
             if (!result) {
                 throw std::runtime_error(result.error().toString());
+            }
+            // Register cleanup handler on first successful init
+            if (!g_atexit_registered) {
+                std::atexit(cleanup_at_exit);
+                g_atexit_registered = true;
             }
         },
         "Initialize the Bud Flow Lang runtime");
@@ -32,4 +59,6 @@ NB_MODULE(bud_flow_lang_py, m) {
     m.def(
         "get_simd_width", []() { return bud::getHardwareInfo().simd_width; },
         "Get available SIMD width in bytes");
+
+    m.def("is_initialized", &bud::isInitialized, "Check if the runtime is initialized");
 }
