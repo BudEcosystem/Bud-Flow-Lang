@@ -1,0 +1,53 @@
+[build-system]
+requires = ["scikit-build-core>=0.5", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "bud-flow-lang"
+version = "0.1.0"
+description = "High-performance SIMD array library with JIT compilation for Python"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Bud Flow Lang Team"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["simd", "jit", "arrays", "performance", "highway", "vectorization"]
+dependencies = ["numpy>=1.20"]
+
+[project.optional-dependencies]
+dev = ["pytest", "numpy", "jax[cpu]"]
+benchmark = ["jax[cpu]", "numpy", "matplotlib", "tabulate"]
+
+[project.urls]
+Homepage = "https://github.com/anthropics/bud_flow_lang"
+Documentation = "https://github.com/anthropics/bud_flow_lang/docs"
+Repository = "https://github.com/anthropics/bud_flow_lang"
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+cmake.args = ["-DBUD_BUILD_PYTHON=ON", "-DBUD_BUILD_TESTS=OFF", "-DBUD_BUILD_EXAMPLES=OFF"]
+wheel.packages = ["python/flow"]
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+BUD_BUILD_PYTHON = "ON"
+BUD_BUILD_TESTS = "OFF"
+
+# Minimum CMake version
+cmake.minimum-version = "3.16"

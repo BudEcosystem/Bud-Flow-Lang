@@ -270,9 +270,22 @@ set(BUD_CORE_SOURCES
     src/ir/ir_interpreter.cc
     src/ir/optimizer.cc
     src/ir/lazy_evaluator.cc
+    src/ir/fusion_cost_model.cc
+    src/ir/sibling_fusion.cc
+    src/ir/horizontal_fusion.cc
     src/jit/stencil_registry.cc
     src/jit/copy_patch_compiler.cc
     src/jit/code_cache.cc
+    src/jit/persistent_cache.cc
+    src/jit/pgo_specializer.cc
+    src/jit/code_layout.cc
+    # Scheduler
+    src/scheduler/schedule.cc
+    src/scheduler/compute_dag.cc
+    src/scheduler/search_space.cc
+    src/scheduler/cost_model.cc
+    src/scheduler/evolutionary_search.cc
+    src/scheduler/auto_scheduler.cc
     src/runtime/bunch.cc
     src/runtime/executor.cc
     src/runtime/memory_pool.cc
@@ -281,6 +294,7 @@ set(BUD_CORE_SOURCES
     # Memory optimization
     src/memory/cache_config.cc
     src/memory/prefetch.cc
+    src/memory/adaptive_prefetch.cc
     src/memory/numa_allocator.cc
     src/memory/tiled_executor.cc
     # Developer tier abstractions
@@ -368,7 +382,22 @@ if(BUD_BUILD_TESTS)
         tests/core/type_system_test.cc
         tests/ir/ir_builder_test.cc
         tests/ir/optimizer_test.cc
+        tests/ir/fusion_cost_model_test.cc
+        tests/ir/sibling_fusion_test.cc
+        tests/ir/horizontal_fusion_test.cc
         tests/jit/copy_patch_test.cc
+        tests/jit/persistent_cache_test.cc
+        tests/jit/pgo_specializer_test.cc
+        tests/jit/code_layout_test.cc
+        tests/scheduler/schedule_test.cc
+        tests/scheduler/compute_dag_test.cc
+        tests/scheduler/search_space_test.cc
+        tests/scheduler/cost_model_test.cc
+        tests/scheduler/evolutionary_search_test.cc
+        tests/scheduler/auto_scheduler_test.cc
+        tests/scheduler/auto_scheduler_benchmark_test.cc
+        tests/scheduler/auto_scheduler_integration_test.cc
+        tests/scheduler/auto_scheduler_stress_test.cc
         tests/runtime/bunch_test.cc
         tests/integration/e2e_test.cc
         tests/integration/test_simple.cc
@@ -377,6 +406,7 @@ if(BUD_BUILD_TESTS)
         tests/codegen/size_specialized_kernels_test.cc
         tests/codegen/kernel_fusion_test.cc
         tests/codegen/prefetch_test.cc
+        tests/memory/adaptive_prefetch_test.cc
         tests/codegen/dynamic_threshold_test.cc
         tests/unit/test_memory_optimization.cc
         tests/stress/test_stress.cc

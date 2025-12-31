@@ -66,13 +66,45 @@ Inspired by V8 and HotSpot JVMs:
 
 ### JIT Optimizations
 
-Five key optimizations implemented with TDD methodology:
+State-of-the-art optimizations implemented with TDD methodology:
 
 1. **Multi-Accumulator Reductions** - 4 independent accumulators hide latency (2-4x speedup)
 2. **Size-Specialized Kernels** - Optimized paths for small/medium/large arrays
 3. **Kernel Fusion** - FMA, AXPY, and compound operations in single passes
 4. **Software Prefetching** - Cache-line prefetch for large arrays
 5. **Dynamic Tier Thresholds** - Array-size-aware JIT compilation triggers
+6. **Cost Model-Based Fusion** - Analytical cost model for optimal fusion decisions
+7. **Multi-Output Fusion** - Sibling operations sharing inputs fused together
+8. **Persistent Kernel Cache** - Hash-based disk cache eliminates cold-start compilation
+9. **Profile-Guided Optimization** - Runtime profiling drives specialization
+
+### Ansor-Style Auto-Scheduler
+
+Inspired by TVM's Ansor (OSDI 2020), our auto-scheduler automatically discovers optimal execution schedules:
+
+```python
+# Automatic schedule optimization
+from bud_flow_lang import AutoScheduler
+
+scheduler = AutoScheduler(population_size=64, num_generations=20)
+result = scheduler.tune(ir_module)
+print(f"Best cost: {result.best_cost}")
+print(f"Schedules evaluated: {result.schedules_evaluated}")
+```
+
+**Key Components:**
+- **Compute DAG** - Dependency analysis for optimization opportunities
+- **Search Space** - Hierarchical sketch + annotation space
+- **Cost Model** - XGBoost-based runtime prediction (0.4μs/prediction)
+- **Evolutionary Search** - Genetic algorithm with mutation/crossover (0.3μs/operation)
+- **Task Scheduler** - Multi-subgraph tuning with time budget allocation
+
+**Performance:**
+| IR Size | Population | Generations | Tuning Time |
+|---------|------------|-------------|-------------|
+| 5 ops   | 16         | 2           | 0.6 ms      |
+| 20 ops  | 32         | 5           | 3 ms        |
+| 50 ops  | 64         | 10          | 30 ms       |
 
 ### Portable SIMD via Google Highway
 
@@ -208,7 +240,7 @@ bud_flow_lang/
 │   ├── jit/                     # Copy-and-patch JIT compiler
 │   ├── runtime/                 # Tiered executor, Bunch
 │   └── python/                  # Python bindings (nanobind)
-├── tests/                       # 590+ unit tests
+├── tests/                       # 946+ unit tests
 ├── benchmarks/                  # Performance benchmarks
 └── docs/                        # Documentation
 ```
@@ -297,16 +329,29 @@ python benchmarks/python/run_benchmarks.py --sizes 1000,100000,1000000 --runs 20
 ```bash
 cd build
 
-# Run all tests
+# Run all tests (946+ tests)
 ./bud_tests
 
-# Run specific test suite
+# Run specific test suites
 ./bud_tests --gtest_filter="DynamicThreshold*"
 ./bud_tests --gtest_filter="OptimizedReductions*"
+./bud_tests --gtest_filter="AutoScheduler*"      # Auto-scheduler tests (81 tests)
 
 # Run with verbose output
 ./bud_tests --gtest_filter="*" --gtest_print_time=1
 ```
+
+### Test Categories
+
+| Category | Tests | Description |
+|----------|-------|-------------|
+| Core IR | 150+ | IR builder, optimizer, value types |
+| JIT Compiler | 120+ | Copy-and-patch, stencils, fusion |
+| Codegen | 180+ | Highway SIMD operations |
+| Runtime | 100+ | Executor, tiered compilation |
+| Auto-Scheduler | 81 | Evolutionary search, cost model |
+| Memory | 50+ | Prefetch, cache, NUMA |
+| Python Bindings | 80+ | Bunch API, NumPy interop |
 
 ## Build Options
 
@@ -346,6 +391,11 @@ cd build
 - [x] Kernel fusion (FMA, AXPY)
 - [x] Software prefetching
 - [x] Dynamic tier thresholds
+- [x] Cost model-based fusion
+- [x] Multi-output fusion
+- [x] Persistent kernel cache
+- [x] Profile-guided optimization
+- [x] Ansor-style auto-scheduler
 - [ ] Multi-threaded execution
 - [ ] GPU backend (CUDA/Metal)
 - [ ] Automatic differentiation

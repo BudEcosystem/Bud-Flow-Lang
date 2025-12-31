@@ -3,6 +3,9 @@
 // =============================================================================
 
 #include "bud_flow_lang/ir.h"
+#include "bud_flow_lang/ir/fusion_cost_model.h"
+#include "bud_flow_lang/ir/horizontal_fusion.h"
+#include "bud_flow_lang/ir/sibling_fusion.h"
 
 #include <fmt/format.h>
 
@@ -628,11 +631,39 @@ Result<void> IRModule::optimize(int level) {
         return Error(ErrorCode::kInvalidInput, "Optimization level must be 0-3");
     }
 
-    // TODO: Implement optimization passes
     // Level 0: No optimization
-    // Level 1: Basic optimizations (constant folding, dead code elimination)
-    // Level 2: Standard optimizations (fusion, strength reduction)
-    // Level 3: Aggressive optimizations (loop unrolling, vectorization hints)
+    if (level == 0) {
+        return {};
+    }
+
+    // Level 1+: Basic optimizations (constant folding, dead code elimination)
+    // TODO: Add constant folding pass
+    // TODO: Add dead code elimination pass
+
+    // Level 2+: Standard optimizations (fusion)
+    if (level >= 2) {
+        // Use cost model-based fusion pass (producer-consumer fusion)
+        FusionCostModel cost_model;
+        PriorityFusionPass fusion_pass(cost_model);
+        fusion_pass.run(builder_);
+
+        // Use sibling fusion pass (multi-output fusion for shared inputs)
+        SiblingFusionPass sibling_pass;
+        sibling_pass.run(builder_);
+
+        // Use horizontal fusion pass (batch independent operations)
+        HorizontalFusionPass horizontal_pass;
+        horizontal_pass.run(builder_);
+
+        // Compact nodes to remove dead code from fusion
+        builder_.compactNodes();
+    }
+
+    // Level 3: Aggressive optimizations
+    if (level >= 3) {
+        // TODO: Add loop unrolling hints
+        // TODO: Add vectorization hints
+    }
 
     return {};
 }
