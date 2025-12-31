@@ -11,9 +11,12 @@
 
 #include <spdlog/spdlog.h>
 
+#include <cstring>
 #include <mutex>
+#include <queue>
 #include <shared_mutex>
 #include <unordered_map>
+#include <vector>
 
 namespace bud {
 namespace jit {
@@ -33,6 +36,9 @@ class IRHasher {
         HashType h = 0;
 
         for (const auto* node : builder.nodes()) {
+            // Combine node ID (ensures position in graph matters)
+            h = combine(h, node->id().id);
+
             // Combine op code
             h = combine(h, static_cast<uint64_t>(node->opCode()));
 
@@ -42,6 +48,24 @@ class IRHasher {
 
             // Combine operand count
             h = combine(h, node->numOperands());
+
+            // CRITICAL FIX: Also hash operand IDs to distinguish different IR graphs
+            // Without this, "a + b" and "c + d" with same types would collide
+            for (size_t i = 0; i < node->numOperands(); ++i) {
+                h = combine(h, node->operand(i).id);
+            }
+
+            // Hash attributes if present (for constants, sizes, etc.)
+            if (node->hasAttr("value")) {
+                // Use bit representation of float for hashing
+                double val = node->floatAttr("value");
+                uint64_t bits;
+                std::memcpy(&bits, &val, sizeof(bits));
+                h = combine(h, bits);
+            }
+            if (node->hasAttr("int_value")) {
+                h = combine(h, static_cast<uint64_t>(node->intAttr("int_value")));
+            }
         }
 
         return h;
@@ -139,11 +163,54 @@ class CodeCache {
     }
 
   private:
+    // Eviction uses sampling to avoid O(N) scan
+    // Sample kEvictionSamples random entries and evict the one with lowest hit count
+    static constexpr size_t kEvictionSamples = 8;
+
     void evictLRU() {
-        // Simple eviction: remove entry with lowest hit count
         if (cache_.empty())
             return;
 
+        // For small caches, use the simple O(N) approach
+        if (cache_.size() <= kEvictionSamples * 2) {
+            evictLRUSimple();
+            return;
+        }
+
+        // Sample kEvictionSamples entries and pick the one with minimum hit count
+        // This is O(k) instead of O(N) and provides good eviction quality in practice
+        auto it = cache_.begin();
+        auto min_it = it;
+
+        // Advance to a pseudo-random starting point based on current time
+        size_t start_offset =
+            static_cast<size_t>(std::hash<size_t>{}(current_size_bytes_)) % cache_.size();
+        std::advance(it, start_offset);
+
+        for (size_t i = 0; i < kEvictionSamples && it != cache_.end(); ++i, ++it) {
+            if (it->second.hit_count < min_it->second.hit_count) {
+                min_it = it;
+            }
+        }
+
+        // Wrap around if we hit the end
+        if (it == cache_.end()) {
+            for (auto wrap_it = cache_.begin(); wrap_it != cache_.end() && wrap_it != min_it;
+                 ++wrap_it) {
+                if (wrap_it->second.hit_count < min_it->second.hit_count) {
+                    min_it = wrap_it;
+                }
+            }
+        }
+
+        current_size_bytes_ -= min_it->second.code_size;
+        spdlog::debug("CodeCache: Evicted kernel (hash={:#x}, hits={})", min_it->first,
+                      min_it->second.hit_count);
+        cache_.erase(min_it);
+    }
+
+    void evictLRUSimple() {
+        // Simple O(N) eviction for small caches
         auto min_it = cache_.begin();
         for (auto it = cache_.begin(); it != cache_.end(); ++it) {
             if (it->second.hit_count < min_it->second.hit_count) {

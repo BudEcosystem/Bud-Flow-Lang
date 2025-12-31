@@ -34,6 +34,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -216,6 +218,285 @@ class CallCounter {
     mutable std::shared_mutex mutex_;
     std::unordered_map<uint64_t, CountEntry> counts_;
 };
+
+// =============================================================================
+// Profile-Guided Optimization (PGO) Infrastructure
+// =============================================================================
+//
+// Tracks detailed runtime metrics to guide optimization decisions:
+// - Call frequency and patterns
+// - Common array sizes for kernel specialization
+// - Execution time for hotspot identification
+// - Operation combinations for fusion opportunities
+//
+
+class KernelProfiler {
+  public:
+    // Record a kernel execution for profiling
+    void recordExecution(uint64_t key, ir::OpCode op, size_t element_count,
+                         std::chrono::nanoseconds exec_time) {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+
+        auto& profile = profiles_[key];
+        profile.call_count++;
+        profile.total_elements += element_count;
+        profile.total_time_ns += exec_time.count();
+        profile.op = op;
+
+        // Track common sizes for specialization
+        updateSizeHistogram(profile, element_count);
+
+        // Track operation sequences for fusion opportunities
+        recordOperationSequence(op);
+    }
+
+    // Get profiling data for a kernel
+    struct KernelProfile {
+        ir::OpCode op = ir::OpCode::kAdd;
+        uint64_t call_count = 0;
+        uint64_t total_elements = 0;
+        uint64_t total_time_ns = 0;
+        std::array<uint32_t, 8> size_histogram{};  // Counts for common sizes
+        std::array<size_t, 8> common_sizes{};      // The actual sizes
+
+        // Derived metrics
+        [[nodiscard]] double avgElementsPerCall() const {
+            return call_count > 0 ? static_cast<double>(total_elements) / call_count : 0.0;
+        }
+
+        [[nodiscard]] double avgTimePerElement() const {
+            return total_elements > 0 ? static_cast<double>(total_time_ns) / total_elements : 0.0;
+        }
+
+        [[nodiscard]] size_t mostCommonSize() const {
+            size_t max_idx = 0;
+            for (size_t i = 1; i < size_histogram.size(); ++i) {
+                if (size_histogram[i] > size_histogram[max_idx]) {
+                    max_idx = i;
+                }
+            }
+            return common_sizes[max_idx];
+        }
+
+        [[nodiscard]] bool shouldSpecialize() const {
+            // Specialize if:
+            // 1. Called frequently (>100 times)
+            // 2. One size dominates (>50% of calls)
+            if (call_count < 100)
+                return false;
+
+            uint32_t max_count = *std::max_element(size_histogram.begin(), size_histogram.end());
+            return max_count > call_count / 2;
+        }
+    };
+
+    [[nodiscard]] KernelProfile getProfile(uint64_t key) const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        auto it = profiles_.find(key);
+        if (it != profiles_.end()) {
+            return it->second;
+        }
+        return {};
+    }
+
+    // Get fusion opportunities based on operation sequences
+    struct FusionOpportunity {
+        ir::OpCode op1;
+        ir::OpCode op2;
+        uint64_t sequence_count;
+    };
+
+    [[nodiscard]] std::vector<FusionOpportunity> getFusionOpportunities() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::vector<FusionOpportunity> opportunities;
+
+        for (const auto& [pair, count] : op_sequences_) {
+            if (count >= 10) {  // Only report significant patterns
+                opportunities.push_back({static_cast<ir::OpCode>(pair >> 16),
+                                         static_cast<ir::OpCode>(pair & 0xFFFF), count});
+            }
+        }
+
+        // Sort by count descending
+        std::sort(opportunities.begin(), opportunities.end(),
+                  [](const auto& a, const auto& b) { return a.sequence_count > b.sequence_count; });
+
+        return opportunities;
+    }
+
+    // Get hot kernels (most frequently called)
+    [[nodiscard]] std::vector<std::pair<uint64_t, KernelProfile>>
+    getHotKernels(size_t limit = 10) const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        std::vector<std::pair<uint64_t, KernelProfile>> hot;
+
+        for (const auto& [key, profile] : profiles_) {
+            hot.emplace_back(key, profile);
+        }
+
+        // Sort by call count descending
+        std::sort(hot.begin(), hot.end(), [](const auto& a, const auto& b) {
+            return a.second.call_count > b.second.call_count;
+        });
+
+        if (hot.size() > limit) {
+            hot.resize(limit);
+        }
+
+        return hot;
+    }
+
+    // Get statistics summary
+    struct ProfileStats {
+        size_t total_profiles = 0;
+        uint64_t total_calls = 0;
+        uint64_t total_elements = 0;
+        uint64_t total_time_ns = 0;
+        size_t specializable_kernels = 0;
+        size_t fusion_opportunities = 0;
+    };
+
+    [[nodiscard]] ProfileStats getStats() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        ProfileStats stats;
+
+        stats.total_profiles = profiles_.size();
+
+        for (const auto& [key, profile] : profiles_) {
+            stats.total_calls += profile.call_count;
+            stats.total_elements += profile.total_elements;
+            stats.total_time_ns += profile.total_time_ns;
+            if (profile.shouldSpecialize()) {
+                ++stats.specializable_kernels;
+            }
+        }
+
+        for (const auto& [pair, count] : op_sequences_) {
+            if (count >= 10) {
+                ++stats.fusion_opportunities;
+            }
+        }
+
+        return stats;
+    }
+
+    // Reset all profiling data
+    void reset() {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        profiles_.clear();
+        op_sequences_.clear();
+        last_op_ = ir::OpCode::kAdd;
+    }
+
+    // Dump profiling report
+    void dumpReport() const {
+        auto stats = getStats();
+        spdlog::info("=== PGO Profile Report ===");
+        spdlog::info("Total kernels profiled: {}", stats.total_profiles);
+        spdlog::info("Total calls: {}", stats.total_calls);
+        spdlog::info("Total elements processed: {}", stats.total_elements);
+        spdlog::info("Total execution time: {} ms", stats.total_time_ns / 1000000.0);
+        spdlog::info("Kernels eligible for specialization: {}", stats.specializable_kernels);
+        spdlog::info("Fusion opportunities detected: {}", stats.fusion_opportunities);
+
+        // Report hot kernels
+        auto hot = getHotKernels(5);
+        spdlog::info("Top 5 hot kernels:");
+        for (const auto& [key, profile] : hot) {
+            spdlog::info("  Key {}: {} calls, {} elements/call, {} ns/element", key,
+                         profile.call_count, profile.avgElementsPerCall(),
+                         profile.avgTimePerElement());
+        }
+
+        // Report fusion opportunities
+        auto fusions = getFusionOpportunities();
+        if (!fusions.empty()) {
+            spdlog::info("Top fusion opportunities:");
+            for (size_t i = 0; i < std::min(size_t{5}, fusions.size()); ++i) {
+                spdlog::info("  {} -> {}: {} sequences", ir::opCodeName(fusions[i].op1),
+                             ir::opCodeName(fusions[i].op2), fusions[i].sequence_count);
+            }
+        }
+    }
+
+  private:
+    void updateSizeHistogram(KernelProfile& profile, size_t element_count) {
+        // Find if this size is already tracked
+        for (size_t i = 0; i < profile.common_sizes.size(); ++i) {
+            if (profile.common_sizes[i] == element_count) {
+                profile.size_histogram[i]++;
+                return;
+            }
+            if (profile.common_sizes[i] == 0) {
+                // Empty slot - use it
+                profile.common_sizes[i] = element_count;
+                profile.size_histogram[i] = 1;
+                return;
+            }
+        }
+
+        // No room - replace lowest count if this is more common
+        size_t min_idx = 0;
+        for (size_t i = 1; i < profile.size_histogram.size(); ++i) {
+            if (profile.size_histogram[i] < profile.size_histogram[min_idx]) {
+                min_idx = i;
+            }
+        }
+
+        // Only replace if we've seen this new size a few times
+        if (profile.size_histogram[min_idx] < 3) {
+            profile.common_sizes[min_idx] = element_count;
+            profile.size_histogram[min_idx] = 1;
+        }
+    }
+
+    void recordOperationSequence(ir::OpCode op) {
+        // Track consecutive operation pairs for fusion detection
+        uint32_t pair = (static_cast<uint32_t>(last_op_) << 16) | static_cast<uint32_t>(op);
+        op_sequences_[pair]++;
+        last_op_ = op;
+    }
+
+    mutable std::shared_mutex mutex_;
+    std::unordered_map<uint64_t, KernelProfile> profiles_;
+    std::unordered_map<uint32_t, uint64_t> op_sequences_;  // Tracks op1->op2 sequences
+    ir::OpCode last_op_ = ir::OpCode::kAdd;
+};
+
+// Global profiler instance
+static std::unique_ptr<KernelProfiler> g_profiler;
+
+// Public API for PGO
+void enableProfiling() {
+    if (!g_profiler) {
+        g_profiler = std::make_unique<KernelProfiler>();
+        spdlog::info("PGO profiling enabled");
+    }
+}
+
+void disableProfiling() {
+    g_profiler.reset();
+    spdlog::info("PGO profiling disabled");
+}
+
+bool isProfilingEnabled() {
+    return g_profiler != nullptr;
+}
+
+void dumpProfilingReport() {
+    if (g_profiler) {
+        g_profiler->dumpReport();
+    } else {
+        spdlog::warn("Profiling not enabled - no report available");
+    }
+}
+
+void resetProfilingData() {
+    if (g_profiler) {
+        g_profiler->reset();
+        spdlog::info("PGO profiling data reset");
+    }
+}
 
 // =============================================================================
 // Tiered Executor

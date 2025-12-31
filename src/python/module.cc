@@ -25,6 +25,10 @@ static void cleanup_at_exit() {
 void bind_bunch(nb::module_& m);
 void bind_flow(nb::module_& m);
 void bind_hints(nb::module_& m);
+void bind_highway(nb::module_& m);
+void bind_pattern(nb::module_& m);
+void bind_pipeline(nb::module_& m);
+void bind_memory(nb::module_& m);
 
 NB_MODULE(bud_flow_lang_py, m) {
     m.doc() = "Bud Flow Lang - High-performance SIMD array library for Python";
@@ -36,6 +40,10 @@ NB_MODULE(bud_flow_lang_py, m) {
     bind_bunch(m);
     bind_flow(m);
     bind_hints(m);
+    bind_highway(m);
+    bind_pattern(m);
+    bind_pipeline(m);
+    bind_memory(m);
 
     // Initialize/shutdown
     m.def(

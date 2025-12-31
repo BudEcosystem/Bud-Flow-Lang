@@ -283,12 +283,18 @@ set(BUD_CORE_SOURCES
     src/memory/prefetch.cc
     src/memory/numa_allocator.cc
     src/memory/tiled_executor.cc
+    # Developer tier abstractions
+    src/pattern/pattern.cc
+    src/pipeline/pipeline.cc
+    # Expert tier Highway types
+    src/highway/highway_types.cc
 )
 
 add_library(bud_flow_core STATIC ${BUD_CORE_SOURCES})
 target_include_directories(bud_flow_core PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src/codegen  # For hwy_ops-inl.h
+    ${CMAKE_SOURCE_DIR}/src/highway  # For highway_types-inl.h
     ${CMAKE_BINARY_DIR}/_deps/highway-src  # Highway includes
 )
 target_link_libraries(bud_flow_core PUBLIC
@@ -328,6 +334,11 @@ if(BUD_BUILD_PYTHON)
         src/python/flow_bindings.cc
         src/python/hint_bindings.cc
         src/python/tracing_context.cc
+        # Developer & Expert Tier bindings
+        src/python/highway_bindings.cc
+        src/python/pattern_bindings.cc
+        src/python/pipeline_bindings.cc
+        src/python/memory_bindings.cc
     )
     target_link_libraries(bud_flow_lang_py PRIVATE bud_flow_core)
     target_include_directories(bud_flow_lang_py PRIVATE ${CMAKE_SOURCE_DIR}/src/python)
@@ -362,6 +373,11 @@ if(BUD_BUILD_TESTS)
         tests/integration/e2e_test.cc
         tests/integration/test_simple.cc
         tests/codegen/hwy_ops_test.cc
+        tests/codegen/optimized_reductions_test.cc
+        tests/codegen/size_specialized_kernels_test.cc
+        tests/codegen/kernel_fusion_test.cc
+        tests/codegen/prefetch_test.cc
+        tests/codegen/dynamic_threshold_test.cc
         tests/unit/test_memory_optimization.cc
         tests/stress/test_stress.cc
         tests/limits/test_limits.cc

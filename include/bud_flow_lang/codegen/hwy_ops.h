@@ -285,6 +285,232 @@ void Ge(uint8_t* HWY_RESTRICT out, const int32_t* HWY_RESTRICT a, const int32_t*
 [[nodiscard]] double Dot(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, size_t count);
 
 // =============================================================================
+// Optimized Reductions with Multiple Accumulators (2-4x faster)
+// =============================================================================
+// These functions use 4-8 independent accumulators to hide instruction latency.
+// Reference: https://en.algorithmica.org/hpc/simd/reduction/
+
+// Fast sum with 4 accumulators
+[[nodiscard]] float ReduceSumFast(const float* HWY_RESTRICT a, size_t count);
+[[nodiscard]] double ReduceSumFast(const double* HWY_RESTRICT a, size_t count);
+[[nodiscard]] int32_t ReduceSumFast(const int32_t* HWY_RESTRICT a, size_t count);
+[[nodiscard]] int64_t ReduceSumFast(const int64_t* HWY_RESTRICT a, size_t count);
+
+// Fast min/max with 4 accumulators
+[[nodiscard]] float ReduceMinFast(const float* HWY_RESTRICT a, size_t count);
+[[nodiscard]] float ReduceMaxFast(const float* HWY_RESTRICT a, size_t count);
+
+// Fast dot product with 4 accumulators
+[[nodiscard]] float DotFast(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, size_t count);
+[[nodiscard]] double DotFast(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                             size_t count);
+
+// Statistical reductions with multi-accumulator optimization
+[[nodiscard]] float MeanFast(const float* HWY_RESTRICT a, size_t count);
+[[nodiscard]] float VarianceFast(const float* HWY_RESTRICT a, size_t count);
+[[nodiscard]] float SumOfSquaresFast(const float* HWY_RESTRICT a, size_t count);
+[[nodiscard]] float NormL2Fast(const float* HWY_RESTRICT a, size_t count);
+
+// =============================================================================
+// Size-Specialized Kernels
+// =============================================================================
+// These functions automatically select the optimal implementation based on array size:
+// - Small (<64): fully unrolled, minimal overhead
+// - Medium (64-4096): 4x unrolled loop
+// - Large (>4096): 8x unrolled + prefetching
+
+// Size thresholds (can be tuned per-platform)
+constexpr size_t kSizeSmallThreshold = 64;
+constexpr size_t kSizeMediumThreshold = 4096;
+
+// Size-specialized addition: out[i] = a[i] + b[i]
+void AddSized(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, float* HWY_RESTRICT out,
+              size_t count);
+void AddSized(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, double* HWY_RESTRICT out,
+              size_t count);
+void AddSized(const int32_t* HWY_RESTRICT a, const int32_t* HWY_RESTRICT b,
+              int32_t* HWY_RESTRICT out, size_t count);
+
+// Size-specialized multiplication: out[i] = a[i] * b[i]
+void MulSized(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, float* HWY_RESTRICT out,
+              size_t count);
+void MulSized(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, double* HWY_RESTRICT out,
+              size_t count);
+
+// Size-specialized fused multiply-add: out[i] = a[i] * b[i] + c[i]
+void FmaSized(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, const float* HWY_RESTRICT c,
+              float* HWY_RESTRICT out, size_t count);
+void FmaSized(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+              const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count);
+
+// Size-specialized reduction: returns sum of elements
+[[nodiscard]] float ReduceSumSized(const float* HWY_RESTRICT a, size_t count);
+[[nodiscard]] double ReduceSumSized(const double* HWY_RESTRICT a, size_t count);
+
+// =============================================================================
+// Fused Kernels
+// =============================================================================
+// Fused operations eliminate temporary arrays and improve cache efficiency
+
+// AddMul: out[i] = (a[i] + b[i]) * c[i]
+void AddMul(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, const float* HWY_RESTRICT c,
+            float* HWY_RESTRICT out, size_t count);
+void AddMul(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+            const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count);
+
+// Note: MulSub and NegMulAdd already declared above with (out, a, b, c) signature
+
+// SubMul: out[i] = (a[i] - b[i]) * c[i]
+void SubMul(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, const float* HWY_RESTRICT c,
+            float* HWY_RESTRICT out, size_t count);
+void SubMul(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+            const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count);
+
+// Axpy: out[i] = alpha * x[i] + y[i] (BLAS-style)
+void Axpy(float alpha, const float* HWY_RESTRICT x, const float* HWY_RESTRICT y,
+          float* HWY_RESTRICT out, size_t count);
+void Axpy(double alpha, const double* HWY_RESTRICT x, const double* HWY_RESTRICT y,
+          double* HWY_RESTRICT out, size_t count);
+
+// Axpby: out[i] = alpha * x[i] + beta * y[i]
+void Axpby(float alpha, const float* HWY_RESTRICT x, float beta, const float* HWY_RESTRICT y,
+           float* HWY_RESTRICT out, size_t count);
+void Axpby(double alpha, const double* HWY_RESTRICT x, double beta, const double* HWY_RESTRICT y,
+           double* HWY_RESTRICT out, size_t count);
+
+// ScaleAdd: out[i] = scale * a[i] + offset (affine transform)
+void ScaleAdd(const float* HWY_RESTRICT a, float scale, float offset, float* HWY_RESTRICT out,
+              size_t count);
+void ScaleAdd(const double* HWY_RESTRICT a, double scale, double offset, double* HWY_RESTRICT out,
+              size_t count);
+
+// SumSq: returns sum(a[i]^2) - fused square and reduce
+[[nodiscard]] float SumSq(const float* HWY_RESTRICT a, size_t count);
+[[nodiscard]] double SumSq(const double* HWY_RESTRICT a, size_t count);
+
+// SumAbsDiff: returns sum(|a[i] - b[i]|) - L1 distance
+[[nodiscard]] float SumAbsDiff(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                               size_t count);
+[[nodiscard]] double SumAbsDiff(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                                size_t count);
+
+// SumSqDiff: returns sum((a[i] - b[i])^2) - squared L2 distance
+[[nodiscard]] float SumSqDiff(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                              size_t count);
+[[nodiscard]] double SumSqDiff(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                               size_t count);
+
+// =============================================================================
+// Prefetch Utilities
+// =============================================================================
+// Software prefetch hints for improved memory access performance
+
+// Prefetch distance constants
+constexpr size_t kPrefetchBytes = 256;  // Bytes to prefetch ahead (4 cache lines)
+
+// Get optimal prefetch distance in elements for a given type
+template <typename T>
+constexpr size_t GetPrefetchDistance() {
+    return kPrefetchBytes / sizeof(T);
+}
+
+// Prefetch for read with locality hint (0=no locality, 3=keep in cache)
+template <typename T>
+inline void PrefetchRead(const T* ptr, int locality = 3) {
+    if (ptr != nullptr) {
+        __builtin_prefetch(ptr, 0, locality);
+    }
+}
+
+// Prefetch for write with locality hint
+template <typename T>
+inline void PrefetchWrite(T* ptr, int locality = 3) {
+    if (ptr != nullptr) {
+        __builtin_prefetch(ptr, 1, locality);
+    }
+}
+
+// Prefetch stream for sequential access patterns
+template <typename T>
+class PrefetchStream {
+  public:
+    PrefetchStream(const T* base, size_t count)
+        : base_(base), count_(count), prefetch_distance_(GetPrefetchDistance<T>()) {}
+
+    void prefetchAhead(size_t current_idx) {
+        size_t prefetch_idx = current_idx + prefetch_distance_;
+        if (prefetch_idx < count_) {
+            __builtin_prefetch(base_ + prefetch_idx, 0, 3);
+        }
+    }
+
+  private:
+    const T* base_;
+    size_t count_;
+    size_t prefetch_distance_;
+};
+
+// Add without prefetch (for benchmarking comparison)
+void AddNoPrefetch(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                   float* HWY_RESTRICT out, size_t count);
+void AddNoPrefetch(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                   double* HWY_RESTRICT out, size_t count);
+
+// Process with prefetch (for strided access)
+void ProcessWithPrefetch(const float* HWY_RESTRICT in, float* HWY_RESTRICT out, size_t count,
+                         size_t stride);
+
+// =============================================================================
+// Dynamic Tier Thresholds
+// =============================================================================
+// Runtime-configurable size tier thresholds for adaptive optimization
+
+// Size tier enumeration
+enum class SizeTier {
+    Small,   // Fully unrolled, minimal overhead
+    Medium,  // 4x unrolled
+    Large    // 8x unrolled + prefetching
+};
+
+// Tier threshold configuration
+struct TierThresholds {
+    size_t small_to_medium;  // Threshold for small->medium transition
+    size_t medium_to_large;  // Threshold for medium->large transition
+};
+
+// Cache information for threshold tuning
+struct CacheInfo {
+    size_t l1_data_cache;    // L1 data cache size in bytes
+    size_t l2_cache;         // L2 cache size in bytes
+    size_t cache_line_size;  // Cache line size in bytes
+};
+
+// Get default thresholds (compile-time constants)
+TierThresholds GetDefaultThresholds();
+
+// Get/set global thresholds
+TierThresholds GetGlobalThresholds();
+void SetGlobalThresholds(const TierThresholds& thresholds);
+
+// Get the size tier for a given element count
+SizeTier GetSizeTier(size_t count);
+
+// Detect cache information from the system
+CacheInfo DetectCacheInfo();
+
+// Calculate optimal thresholds from cache info
+TierThresholds CalculateThresholdsFromCache(const CacheInfo& info);
+
+// Auto-tune thresholds by benchmarking
+TierThresholds AutoTuneThresholds();
+
+// Dynamic-threshold versions of size-specialized operations
+void AddSizedDynamic(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                     float* HWY_RESTRICT out, size_t count);
+void AddSizedDynamic(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                     double* HWY_RESTRICT out, size_t count);
+
+// =============================================================================
 // Priority 1: Conditional Selection (Masked Operations)
 // =============================================================================
 
@@ -418,6 +644,81 @@ Result<void> DispatchLog(void* out, const void* a, size_t count, ScalarType dtyp
 Result<void> DispatchSin(void* out, const void* a, size_t count, ScalarType dtype);
 Result<void> DispatchCos(void* out, const void* a, size_t count, ScalarType dtype);
 Result<void> DispatchTanh(void* out, const void* a, size_t count, ScalarType dtype);
+
+// Extended Transcendental Dispatchers
+Result<void> DispatchExp2(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchLog2(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchLog10(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchSinh(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchCosh(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchAsinh(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchAcosh(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchAtanh(void* out, const void* a, size_t count, ScalarType dtype);
+
+// Inverse Trigonometric Dispatchers
+Result<void> DispatchAsin(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchAcos(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchAtan(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchAtan2(void* out, const void* y, const void* x, size_t count, ScalarType dtype);
+
+// FMA Variant Dispatchers
+Result<void> DispatchMulSub(void* out, const void* a, const void* b, const void* c, size_t count,
+                            ScalarType dtype);
+Result<void> DispatchNegMulAdd(void* out, const void* a, const void* b, const void* c, size_t count,
+                               ScalarType dtype);
+
+// Reduction Dispatchers (return scalar results)
+[[nodiscard]] Result<float> DispatchReduceSum(const void* a, size_t count, ScalarType dtype);
+[[nodiscard]] Result<float> DispatchReduceMin(const void* a, size_t count, ScalarType dtype);
+[[nodiscard]] Result<float> DispatchReduceMax(const void* a, size_t count, ScalarType dtype);
+
+// Comparison Dispatchers (produce float masks: 1.0f for true, 0.0f for false)
+Result<void> DispatchEq(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+Result<void> DispatchNe(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+Result<void> DispatchLt(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+Result<void> DispatchLe(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+Result<void> DispatchGt(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+Result<void> DispatchGe(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+
+// Min/Max Dispatchers (element-wise)
+Result<void> DispatchMin(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+Result<void> DispatchMax(void* out, const void* a, const void* b, size_t count, ScalarType dtype);
+
+// Conditional Dispatchers
+Result<void> DispatchWhere(void* out, const void* mask, const void* a, const void* b, size_t count,
+                           ScalarType dtype);
+
+// Factory Dispatchers
+Result<void> DispatchFill(void* out, float value, size_t count, ScalarType dtype);
+Result<void> DispatchArange(void* out, float start, float step, size_t count, ScalarType dtype);
+
+// Fused Operation Dispatchers
+Result<void> DispatchLerp(void* out, const void* a, const void* b, float t, size_t count,
+                          ScalarType dtype);
+
+// Additional Transcendental Dispatchers
+Result<void> DispatchTan(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchSigmoid(void* out, const void* a, size_t count, ScalarType dtype);
+
+// Rounding Dispatchers
+Result<void> DispatchFloor(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchCeil(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchRound(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchTrunc(void* out, const void* a, size_t count, ScalarType dtype);
+
+// Special Value Check Dispatchers (output as float masks: 1.0f for true, 0.0f for false)
+Result<void> DispatchIsNaN(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchIsInf(void* out, const void* a, size_t count, ScalarType dtype);
+Result<void> DispatchIsFinite(void* out, const void* a, size_t count, ScalarType dtype);
+
+// Bitwise Operation Dispatchers (integer types only)
+Result<void> DispatchBitwiseAnd(void* out, const void* a, const void* b, size_t count,
+                                ScalarType dtype);
+Result<void> DispatchBitwiseOr(void* out, const void* a, const void* b, size_t count,
+                               ScalarType dtype);
+Result<void> DispatchBitwiseXor(void* out, const void* a, const void* b, size_t count,
+                                ScalarType dtype);
+Result<void> DispatchBitwiseNot(void* out, const void* a, size_t count, ScalarType dtype);
 
 // =============================================================================
 // Priority 3: Special Value Checks

@@ -61,6 +61,32 @@ void shutdown();
 bool isInitialized();
 
 // =============================================================================
+// Profile-Guided Optimization (PGO) API
+// =============================================================================
+//
+// Enable runtime profiling to collect performance data for optimization.
+// When enabled, the runtime tracks:
+// - Call frequencies for hot kernel identification
+// - Common array sizes for kernel specialization
+// - Operation sequences for fusion opportunities
+//
+
+// Enable PGO profiling (call after initialize)
+void enableProfiling();
+
+// Disable PGO profiling
+void disableProfiling();
+
+// Check if profiling is enabled
+bool isProfilingEnabled();
+
+// Dump profiling report to log
+void dumpProfilingReport();
+
+// Reset all profiling data
+void resetProfilingData();
+
+// =============================================================================
 // Hardware Information
 // =============================================================================
 

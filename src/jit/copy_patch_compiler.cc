@@ -61,11 +61,13 @@ class ExecutableMemory {
         : ptr_(other.ptr_),
           size_(other.size_),
           used_(other.used_),
-          is_executable_(other.is_executable_) {
+          is_executable_(other.is_executable_),
+          pending_executable_start_(other.pending_executable_start_) {
         other.ptr_ = nullptr;
         other.size_ = 0;
         other.used_ = 0;
         other.is_executable_ = false;
+        other.pending_executable_start_ = 0;
     }
 
     void* allocate(size_t bytes, size_t alignment = 16) {
@@ -108,7 +110,38 @@ class ExecutableMemory {
         // x86/x86_64 has coherent instruction caches, no flush needed
 
         is_executable_ = true;
+        pending_executable_start_ = used_;
         spdlog::debug("ExecutableMemory: Made {} bytes executable", used_);
+        return true;
+    }
+
+    // Batch mprotect: Mark region as pending executable, call flushExecutable() later
+    void markPendingExecutable() { pending_executable_start_ = used_; }
+
+    // Batch mprotect: Make all pending regions executable at once
+    [[nodiscard]] bool flushExecutable() {
+        if (!ptr_ || is_executable_) {
+            return is_executable_;
+        }
+
+        // Only make executable if we have pending code
+        if (pending_executable_start_ == used_) {
+            return true;  // Nothing new to flush
+        }
+
+        // Make the entire region executable (simpler and faster than partial mprotect)
+        if (mprotect(ptr_, size_, PROT_READ | PROT_EXEC) != 0) {
+            spdlog::error("ExecutableMemory: mprotect failed in flushExecutable()");
+            return false;
+        }
+
+#if defined(__aarch64__) || defined(__arm__) || defined(__riscv)
+        __builtin___clear_cache(static_cast<char*>(ptr_) + pending_executable_start_,
+                                static_cast<char*>(ptr_) + used_);
+#endif
+
+        is_executable_ = true;
+        spdlog::debug("ExecutableMemory: Batch flush made {} bytes executable", used_);
         return true;
     }
 
@@ -127,6 +160,7 @@ class ExecutableMemory {
         }
 
         used_ = 0;
+        pending_executable_start_ = 0;
         return true;
     }
 
@@ -141,6 +175,79 @@ class ExecutableMemory {
     size_t size_ = 0;
     size_t used_ = 0;
     bool is_executable_ = false;
+    size_t pending_executable_start_ = 0;  // For batch mprotect
+};
+
+// =============================================================================
+// Thread-Local Memory Pool
+// =============================================================================
+
+// Per-thread executable memory pool to eliminate mutex contention
+class ThreadLocalPool {
+  public:
+    static constexpr size_t kPoolSize = 4 * 1024 * 1024;  // 4 MB per thread
+    static constexpr size_t kBatchThreshold = 16;         // Flush after N kernels
+
+    static ThreadLocalPool& get() {
+        thread_local ThreadLocalPool pool;
+        return pool;
+    }
+
+    void* allocate(size_t bytes, size_t alignment = 16) {
+        if (!memory_.valid()) {
+            return nullptr;
+        }
+
+        // If memory is already executable, we need to reset
+        if (memory_.isExecutable()) {
+            if (!memory_.reset()) {
+                return nullptr;
+            }
+            pending_count_ = 0;
+        }
+
+        return memory_.allocate(bytes, alignment);
+    }
+
+    // Mark that a kernel was written, batch mprotect when threshold reached
+    bool markKernelComplete() {
+        ++pending_count_;
+
+        if (pending_count_ >= kBatchThreshold) {
+            return flushAll();
+        }
+        return true;
+    }
+
+    // Force all pending regions to become executable
+    bool flushAll() {
+        if (!memory_.valid()) {
+            return false;
+        }
+
+        bool result = memory_.flushExecutable();
+        pending_count_ = 0;
+        return result;
+    }
+
+    // Legacy single-kernel path
+    bool makeExecutable() { return memory_.makeExecutable(); }
+
+    [[nodiscard]] size_t remaining() const { return memory_.remaining(); }
+    [[nodiscard]] size_t used() const { return memory_.used(); }
+    [[nodiscard]] bool valid() const { return memory_.valid(); }
+    [[nodiscard]] bool isExecutable() const { return memory_.isExecutable(); }
+
+  private:
+    ThreadLocalPool() : memory_(kPoolSize) {
+        if (memory_.valid()) {
+            spdlog::debug("ThreadLocalPool: Created {} MB pool for thread",
+                          kPoolSize / (1024 * 1024));
+        }
+    }
+
+    ExecutableMemory memory_;
+    size_t pending_count_ = 0;
 };
 
 // =============================================================================
@@ -177,23 +284,20 @@ class CompiledKernel {
 
 class CopyPatchCompiler {
   public:
-    CopyPatchCompiler() : exec_mem_(kDefaultMemorySize) {
-        if (!exec_mem_.valid()) {
-            spdlog::error("CopyPatchCompiler: Failed to initialize executable memory");
+    CopyPatchCompiler() : fallback_mem_(kDefaultMemorySize) {
+        if (!fallback_mem_.valid()) {
+            spdlog::error("CopyPatchCompiler: Failed to initialize fallback memory");
         } else {
-            spdlog::info("CopyPatchCompiler: Initialized with {} MB executable memory",
+            spdlog::info("CopyPatchCompiler: Initialized with {} MB fallback + thread-local pools",
                          kDefaultMemorySize / (1024 * 1024));
         }
     }
 
     Result<CompiledKernel> compile(const ir::IRBuilder& builder, ir::ValueId output) {
-        std::lock_guard<std::mutex> lock(compile_mutex_);
+        // Use thread-local pool for lock-free allocation in common case
+        auto& tls_pool = ThreadLocalPool::get();
 
         auto start_time = std::chrono::high_resolution_clock::now();
-
-        if (!exec_mem_.valid()) {
-            return Error(ErrorCode::kCompilationFailed, "Executable memory not available");
-        }
 
         const auto& nodes = builder.nodes();
         if (nodes.empty()) {
@@ -234,15 +338,20 @@ class CopyPatchCompiler {
         // Add prologue/epilogue overhead
         total_code_size += 64;
 
-        // Phase 3: Allocate executable memory
-        void* code_ptr = exec_mem_.allocate(total_code_size, 16);
+        // Phase 3: Allocate from thread-local pool (lock-free fast path)
+        void* code_ptr = tls_pool.allocate(total_code_size, 16);
+
+        // Fallback to global pool if thread-local exhausted
         if (!code_ptr) {
-            // Try to reset and allocate again
-            if (exec_mem_.reset()) {
-                code_ptr = exec_mem_.allocate(total_code_size, 16);
-            }
+            std::lock_guard<std::mutex> lock(fallback_mutex_);
+            code_ptr = fallback_mem_.allocate(total_code_size, 16);
             if (!code_ptr) {
-                return Error(ErrorCode::kAllocationFailed, "Not enough executable memory");
+                if (fallback_mem_.reset()) {
+                    code_ptr = fallback_mem_.allocate(total_code_size, 16);
+                }
+                if (!code_ptr) {
+                    return Error(ErrorCode::kAllocationFailed, "Not enough executable memory");
+                }
             }
         }
 
@@ -291,9 +400,12 @@ class CopyPatchCompiler {
 
         size_t actual_code_size = write_ptr - code_start;
 
-        // Phase 7: Make code executable
-        if (!exec_mem_.makeExecutable()) {
-            return Error(ErrorCode::kCompilationFailed, "Failed to make code executable");
+        // Phase 7: Make code executable (batched via thread-local pool)
+        if (!tls_pool.markKernelComplete()) {
+            // Fallback: immediate make executable
+            if (!tls_pool.makeExecutable()) {
+                return Error(ErrorCode::kCompilationFailed, "Failed to make code executable");
+            }
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
@@ -303,17 +415,18 @@ class CopyPatchCompiler {
         spdlog::debug("CopyPatchCompiler: Compiled {} ops in {} bytes ({} µs)", ops_compiled,
                       actual_code_size, compile_time.count());
 
-        // Update statistics
-        ++total_compilations_;
-        total_compile_time_us_ += compile_time.count();
+        // Update statistics (atomic for thread safety)
+        total_compilations_.fetch_add(1, std::memory_order_relaxed);
+        total_compile_time_us_.fetch_add(compile_time.count(), std::memory_order_relaxed);
 
         auto fn = reinterpret_cast<CompiledKernel::KernelFn>(code_ptr);
         return CompiledKernel(fn, actual_code_size, ops_compiled);
     }
 
-    // Compile a single operation (for simple cases)
+    // Compile a single operation (for simple cases) - uses thread-local pool
     Result<CompiledKernel> compileSingleOp(ir::OpCode op, ScalarType dtype) {
-        std::lock_guard<std::mutex> lock(compile_mutex_);
+        // No global mutex needed - thread-local allocation!
+        auto& tls_pool = ThreadLocalPool::get();
 
         auto* stencil = findStencil(op, dtype);
         if (!stencil) {
@@ -325,42 +438,58 @@ class CopyPatchCompiler {
         // Allocate memory for stencil + wrapper
         size_t total_size = stencil->code.size() + 16;  // prologue/epilogue
 
-        void* code_ptr = exec_mem_.allocate(total_size, stencil->alignment);
+        void* code_ptr = tls_pool.allocate(total_size, stencil->alignment);
         if (!code_ptr) {
-            if (exec_mem_.reset()) {
-                code_ptr = exec_mem_.allocate(total_size, stencil->alignment);
-            }
+            // Fallback to global pool
+            std::lock_guard<std::mutex> lock(fallback_mutex_);
+            code_ptr = fallback_mem_.allocate(total_size, stencil->alignment);
             if (!code_ptr) {
-                return Error(ErrorCode::kAllocationFailed, "Not enough executable memory");
+                if (fallback_mem_.reset()) {
+                    code_ptr = fallback_mem_.allocate(total_size, stencil->alignment);
+                }
+                if (!code_ptr) {
+                    return Error(ErrorCode::kAllocationFailed, "Not enough executable memory");
+                }
             }
-        }
-
-        uint8_t* write_ptr = static_cast<uint8_t*>(code_ptr);
-
-        // Just copy the stencil - it already has prologue/epilogue
-        std::memcpy(write_ptr, stencil->code.data(), stencil->code.size());
-
-        if (!exec_mem_.makeExecutable()) {
-            return Error(ErrorCode::kCompilationFailed, "Failed to make code executable");
+            // Global pool needs immediate mprotect
+            std::memcpy(code_ptr, stencil->code.data(), stencil->code.size());
+            if (!fallback_mem_.makeExecutable()) {
+                return Error(ErrorCode::kCompilationFailed, "Failed to make code executable");
+            }
+        } else {
+            // Thread-local pool - copy and make executable immediately
+            // (batch mprotect is only for bulk compilation, not single-op execution)
+            std::memcpy(code_ptr, stencil->code.data(), stencil->code.size());
+            if (!tls_pool.flushAll()) {
+                return Error(ErrorCode::kCompilationFailed, "Failed to make code executable");
+            }
         }
 
         auto fn = reinterpret_cast<CompiledKernel::KernelFn>(code_ptr);
         return CompiledKernel(fn, stencil->code.size(), 1);
     }
 
-    [[nodiscard]] size_t memoryRemaining() const { return exec_mem_.remaining(); }
-    [[nodiscard]] size_t memoryUsed() const { return exec_mem_.used(); }
-    [[nodiscard]] size_t totalCompilations() const { return total_compilations_; }
-    [[nodiscard]] uint64_t totalCompileTimeUs() const { return total_compile_time_us_; }
+    [[nodiscard]] size_t memoryRemaining() const {
+        return ThreadLocalPool::get().remaining() + fallback_mem_.remaining();
+    }
+    [[nodiscard]] size_t memoryUsed() const {
+        return ThreadLocalPool::get().used() + fallback_mem_.used();
+    }
+    [[nodiscard]] size_t totalCompilations() const {
+        return total_compilations_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] uint64_t totalCompileTimeUs() const {
+        return total_compile_time_us_.load(std::memory_order_relaxed);
+    }
 
   private:
-    static constexpr size_t kDefaultMemorySize = 16 * 1024 * 1024;  // 16 MB
-    ExecutableMemory exec_mem_;
-    mutable std::mutex compile_mutex_;  // Thread safety for compilation
+    static constexpr size_t kDefaultMemorySize = 16 * 1024 * 1024;  // 16 MB fallback
+    ExecutableMemory fallback_mem_;
+    mutable std::mutex fallback_mutex_;  // Only used when thread-local pool exhausted
 
-    // Statistics
-    size_t total_compilations_ = 0;
-    uint64_t total_compile_time_us_ = 0;
+    // Statistics (atomic for thread safety)
+    std::atomic<size_t> total_compilations_{0};
+    std::atomic<uint64_t> total_compile_time_us_{0};
 };
 
 // =============================================================================

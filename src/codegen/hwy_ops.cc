@@ -21,7 +21,12 @@
 #include <hwy/foreach_target.h>  // IWYU pragma: keep
 #include <hwy/highway.h>
 
-#include <cstdlib>  // For std::aligned_alloc, std::free
+#include <algorithm>  // For std::max, std::min
+#include <array>      // For std::array
+#include <atomic>     // For std::atomic
+#include <chrono>     // For std::chrono
+#include <cstdio>     // For FILE, fopen, fgets, sscanf
+#include <cstdlib>    // For std::aligned_alloc, std::free
 
 #include "hwy_ops-inl.h"  // For the static target
 
@@ -131,6 +136,57 @@ HWY_EXPORT(ReduceMaxInt64);
 HWY_EXPORT(DotFloat32);
 HWY_EXPORT(DotFloat64);
 
+// Optimized Reductions with Multiple Accumulators
+HWY_EXPORT(ReduceSumFastFloat32);
+HWY_EXPORT(ReduceSumFastFloat64);
+HWY_EXPORT(ReduceSumFastInt32);
+HWY_EXPORT(ReduceSumFastInt64);
+HWY_EXPORT(ReduceMinFastFloat32);
+HWY_EXPORT(ReduceMaxFastFloat32);
+HWY_EXPORT(DotFastFloat32);
+HWY_EXPORT(DotFastFloat64);
+HWY_EXPORT(MeanFastFloat32);
+HWY_EXPORT(SumOfSquaresFastFloat32);
+HWY_EXPORT(NormL2FastFloat32);
+HWY_EXPORT(VarianceFastFloat32);
+
+// Size-Specialized Kernels
+HWY_EXPORT(AddSizedFloat32);
+HWY_EXPORT(AddSizedFloat64);
+HWY_EXPORT(AddSizedInt32);
+HWY_EXPORT(AddSizedSmallFloat32);
+HWY_EXPORT(AddSizedMediumFloat32);
+HWY_EXPORT(AddSizedLargeFloat32);
+HWY_EXPORT(MulSizedFloat32);
+HWY_EXPORT(MulSizedFloat64);
+HWY_EXPORT(FmaSizedFloat32);
+HWY_EXPORT(FmaSizedFloat64);
+HWY_EXPORT(ReduceSumSizedFloat32);
+HWY_EXPORT(ReduceSumSizedFloat64);
+
+// Fused Kernels
+HWY_EXPORT(AddMulFloat32);
+HWY_EXPORT(AddMulFloat64);
+HWY_EXPORT(SubMulFloat32);
+HWY_EXPORT(SubMulFloat64);
+HWY_EXPORT(AxpyFloat32);
+HWY_EXPORT(AxpyFloat64);
+HWY_EXPORT(AxpbyFloat32);
+HWY_EXPORT(AxpbyFloat64);
+HWY_EXPORT(ScaleAddFloat32);
+HWY_EXPORT(ScaleAddFloat64);
+HWY_EXPORT(SumSqFloat32);
+HWY_EXPORT(SumSqFloat64);
+HWY_EXPORT(SumAbsDiffFloat32);
+HWY_EXPORT(SumAbsDiffFloat64);
+HWY_EXPORT(SumSqDiffFloat32);
+HWY_EXPORT(SumSqDiffFloat64);
+
+// Prefetch Utilities
+HWY_EXPORT(AddNoPrefetchFloat32);
+HWY_EXPORT(AddNoPrefetchFloat64);
+HWY_EXPORT(ProcessWithPrefetchFloat32);
+
 // Priority 1: Select Operations
 HWY_EXPORT(SelectFloat32);
 HWY_EXPORT(SelectFloat64);
@@ -157,6 +213,14 @@ HWY_EXPORT(AtanFloat32);
 HWY_EXPORT(AtanFloat64);
 HWY_EXPORT(Atan2Float32);
 HWY_EXPORT(Atan2Float64);
+
+// Priority 2: Inverse Hyperbolic Operations
+HWY_EXPORT(AsinhFloat32);
+HWY_EXPORT(AsinhFloat64);
+HWY_EXPORT(AcoshFloat32);
+HWY_EXPORT(AcoshFloat64);
+HWY_EXPORT(AtanhFloat32);
+HWY_EXPORT(AtanhFloat64);
 
 // Priority 2: Rounding Operations
 HWY_EXPORT(RoundFloat32);
@@ -907,16 +971,22 @@ using hwy::AbsInt32HighwayDispatchTable;
 using hwy::AbsInt64HighwayDispatchTable;
 using hwy::AcosFloat32HighwayDispatchTable;
 using hwy::AcosFloat64HighwayDispatchTable;
+using hwy::AcoshFloat32HighwayDispatchTable;
+using hwy::AcoshFloat64HighwayDispatchTable;
 using hwy::AddFloat32HighwayDispatchTable;
 using hwy::AddFloat64HighwayDispatchTable;
 using hwy::AddInt32HighwayDispatchTable;
 using hwy::AddInt64HighwayDispatchTable;
 using hwy::AsinFloat32HighwayDispatchTable;
 using hwy::AsinFloat64HighwayDispatchTable;
+using hwy::AsinhFloat32HighwayDispatchTable;
+using hwy::AsinhFloat64HighwayDispatchTable;
 using hwy::Atan2Float32HighwayDispatchTable;
 using hwy::Atan2Float64HighwayDispatchTable;
 using hwy::AtanFloat32HighwayDispatchTable;
 using hwy::AtanFloat64HighwayDispatchTable;
+using hwy::AtanhFloat32HighwayDispatchTable;
+using hwy::AtanhFloat64HighwayDispatchTable;
 using hwy::BitwiseAndInt32HighwayDispatchTable;
 using hwy::BitwiseAndInt64HighwayDispatchTable;
 using hwy::BitwiseNotInt32HighwayDispatchTable;
@@ -937,6 +1007,8 @@ using hwy::CoshFloat32HighwayDispatchTable;
 using hwy::CoshFloat64HighwayDispatchTable;
 using hwy::DivFloat32HighwayDispatchTable;
 using hwy::DivFloat64HighwayDispatchTable;
+using hwy::DotFastFloat32HighwayDispatchTable;
+using hwy::DotFastFloat64HighwayDispatchTable;
 using hwy::DotFloat32HighwayDispatchTable;
 using hwy::DotFloat64HighwayDispatchTable;
 using hwy::EqFloat32HighwayDispatchTable;
@@ -970,6 +1042,7 @@ using hwy::MaxFloat32HighwayDispatchTable;
 using hwy::MaxFloat64HighwayDispatchTable;
 using hwy::MaxInt32HighwayDispatchTable;
 using hwy::MaxInt64HighwayDispatchTable;
+using hwy::MeanFastFloat32HighwayDispatchTable;
 using hwy::MinFloat32HighwayDispatchTable;
 using hwy::MinFloat64HighwayDispatchTable;
 using hwy::MinInt32HighwayDispatchTable;
@@ -991,14 +1064,21 @@ using hwy::NegInt64HighwayDispatchTable;
 using hwy::NegMulAddFloat32HighwayDispatchTable;
 using hwy::NegMulAddFloat64HighwayDispatchTable;
 using hwy::NeInt32HighwayDispatchTable;
+using hwy::NormL2FastFloat32HighwayDispatchTable;
+using hwy::ReduceMaxFastFloat32HighwayDispatchTable;
 using hwy::ReduceMaxFloat32HighwayDispatchTable;
 using hwy::ReduceMaxFloat64HighwayDispatchTable;
 using hwy::ReduceMaxInt32HighwayDispatchTable;
 using hwy::ReduceMaxInt64HighwayDispatchTable;
+using hwy::ReduceMinFastFloat32HighwayDispatchTable;
 using hwy::ReduceMinFloat32HighwayDispatchTable;
 using hwy::ReduceMinFloat64HighwayDispatchTable;
 using hwy::ReduceMinInt32HighwayDispatchTable;
 using hwy::ReduceMinInt64HighwayDispatchTable;
+using hwy::ReduceSumFastFloat32HighwayDispatchTable;
+using hwy::ReduceSumFastFloat64HighwayDispatchTable;
+using hwy::ReduceSumFastInt32HighwayDispatchTable;
+using hwy::ReduceSumFastInt64HighwayDispatchTable;
 using hwy::ReduceSumFloat32HighwayDispatchTable;
 using hwy::ReduceSumFloat64HighwayDispatchTable;
 using hwy::ReduceSumInt32HighwayDispatchTable;
@@ -1020,10 +1100,49 @@ using hwy::SubFloat32HighwayDispatchTable;
 using hwy::SubFloat64HighwayDispatchTable;
 using hwy::SubInt32HighwayDispatchTable;
 using hwy::SubInt64HighwayDispatchTable;
+using hwy::SumOfSquaresFastFloat32HighwayDispatchTable;
 using hwy::TanhFloat32HighwayDispatchTable;
 using hwy::TanhFloat64HighwayDispatchTable;
 using hwy::TruncFloat32HighwayDispatchTable;
 using hwy::TruncFloat64HighwayDispatchTable;
+using hwy::VarianceFastFloat32HighwayDispatchTable;
+
+// Size-Specialized Kernels
+using hwy::AddSizedFloat32HighwayDispatchTable;
+using hwy::AddSizedFloat64HighwayDispatchTable;
+using hwy::AddSizedInt32HighwayDispatchTable;
+using hwy::AddSizedLargeFloat32HighwayDispatchTable;
+using hwy::AddSizedMediumFloat32HighwayDispatchTable;
+using hwy::AddSizedSmallFloat32HighwayDispatchTable;
+using hwy::FmaSizedFloat32HighwayDispatchTable;
+using hwy::FmaSizedFloat64HighwayDispatchTable;
+using hwy::MulSizedFloat32HighwayDispatchTable;
+using hwy::MulSizedFloat64HighwayDispatchTable;
+using hwy::ReduceSumSizedFloat32HighwayDispatchTable;
+using hwy::ReduceSumSizedFloat64HighwayDispatchTable;
+
+// Fused Kernels
+using hwy::AddMulFloat32HighwayDispatchTable;
+using hwy::AddMulFloat64HighwayDispatchTable;
+using hwy::AxpbyFloat32HighwayDispatchTable;
+using hwy::AxpbyFloat64HighwayDispatchTable;
+using hwy::AxpyFloat32HighwayDispatchTable;
+using hwy::AxpyFloat64HighwayDispatchTable;
+using hwy::ScaleAddFloat32HighwayDispatchTable;
+using hwy::ScaleAddFloat64HighwayDispatchTable;
+using hwy::SubMulFloat32HighwayDispatchTable;
+using hwy::SubMulFloat64HighwayDispatchTable;
+using hwy::SumAbsDiffFloat32HighwayDispatchTable;
+using hwy::SumAbsDiffFloat64HighwayDispatchTable;
+using hwy::SumSqDiffFloat32HighwayDispatchTable;
+using hwy::SumSqDiffFloat64HighwayDispatchTable;
+using hwy::SumSqFloat32HighwayDispatchTable;
+using hwy::SumSqFloat64HighwayDispatchTable;
+
+// Prefetch Utilities
+using hwy::AddNoPrefetchFloat32HighwayDispatchTable;
+using hwy::AddNoPrefetchFloat64HighwayDispatchTable;
+using hwy::ProcessWithPrefetchFloat32HighwayDispatchTable;
 
 // Priority 3: Special Value Checks
 using hwy::IsFiniteFloat32HighwayDispatchTable;
@@ -2146,6 +2265,200 @@ double Dot(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, size_t co
     return HWY_DYNAMIC_DISPATCH(DotFloat64)(a, b, count);
 }
 
+// Optimized Reductions with Multiple Accumulators
+
+float ReduceSumFast(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceSumFastFloat32)(a, count);
+}
+
+double ReduceSumFast(const double* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceSumFastFloat64)(a, count);
+}
+
+int32_t ReduceSumFast(const int32_t* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceSumFastInt32)(a, count);
+}
+
+int64_t ReduceSumFast(const int64_t* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceSumFastInt64)(a, count);
+}
+
+float ReduceMinFast(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceMinFastFloat32)(a, count);
+}
+
+float ReduceMaxFast(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceMaxFastFloat32)(a, count);
+}
+
+float DotFast(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(DotFastFloat32)(a, b, count);
+}
+
+double DotFast(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(DotFastFloat64)(a, b, count);
+}
+
+float MeanFast(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(MeanFastFloat32)(a, count);
+}
+
+float VarianceFast(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(VarianceFastFloat32)(a, count);
+}
+
+float SumOfSquaresFast(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(SumOfSquaresFastFloat32)(a, count);
+}
+
+float NormL2Fast(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(NormL2FastFloat32)(a, count);
+}
+
+// =============================================================================
+// Size-Specialized Kernels
+// =============================================================================
+
+void AddSized(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, float* HWY_RESTRICT out,
+              size_t count) {
+    HWY_DYNAMIC_DISPATCH(AddSizedFloat32)(a, b, out, count);
+}
+
+void AddSized(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, double* HWY_RESTRICT out,
+              size_t count) {
+    HWY_DYNAMIC_DISPATCH(AddSizedFloat64)(a, b, out, count);
+}
+
+void AddSized(const int32_t* HWY_RESTRICT a, const int32_t* HWY_RESTRICT b,
+              int32_t* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AddSizedInt32)(a, b, out, count);
+}
+
+void MulSized(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, float* HWY_RESTRICT out,
+              size_t count) {
+    HWY_DYNAMIC_DISPATCH(MulSizedFloat32)(a, b, out, count);
+}
+
+void MulSized(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, double* HWY_RESTRICT out,
+              size_t count) {
+    HWY_DYNAMIC_DISPATCH(MulSizedFloat64)(a, b, out, count);
+}
+
+void FmaSized(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, const float* HWY_RESTRICT c,
+              float* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(FmaSizedFloat32)(a, b, c, out, count);
+}
+
+void FmaSized(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+              const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(FmaSizedFloat64)(a, b, c, out, count);
+}
+
+float ReduceSumSized(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceSumSizedFloat32)(a, count);
+}
+
+double ReduceSumSized(const double* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(ReduceSumSizedFloat64)(a, count);
+}
+
+// =============================================================================
+// Fused Kernels
+// =============================================================================
+
+void AddMul(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, const float* HWY_RESTRICT c,
+            float* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AddMulFloat32)(a, b, c, out, count);
+}
+
+void AddMul(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+            const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AddMulFloat64)(a, b, c, out, count);
+}
+
+void SubMul(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, const float* HWY_RESTRICT c,
+            float* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(SubMulFloat32)(a, b, c, out, count);
+}
+
+void SubMul(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+            const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(SubMulFloat64)(a, b, c, out, count);
+}
+
+void Axpy(float alpha, const float* HWY_RESTRICT x, const float* HWY_RESTRICT y,
+          float* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AxpyFloat32)(alpha, x, y, out, count);
+}
+
+void Axpy(double alpha, const double* HWY_RESTRICT x, const double* HWY_RESTRICT y,
+          double* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AxpyFloat64)(alpha, x, y, out, count);
+}
+
+void Axpby(float alpha, const float* HWY_RESTRICT x, float beta, const float* HWY_RESTRICT y,
+           float* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AxpbyFloat32)(alpha, x, beta, y, out, count);
+}
+
+void Axpby(double alpha, const double* HWY_RESTRICT x, double beta, const double* HWY_RESTRICT y,
+           double* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AxpbyFloat64)(alpha, x, beta, y, out, count);
+}
+
+void ScaleAdd(const float* HWY_RESTRICT a, float scale, float offset, float* HWY_RESTRICT out,
+              size_t count) {
+    HWY_DYNAMIC_DISPATCH(ScaleAddFloat32)(a, scale, offset, out, count);
+}
+
+void ScaleAdd(const double* HWY_RESTRICT a, double scale, double offset, double* HWY_RESTRICT out,
+              size_t count) {
+    HWY_DYNAMIC_DISPATCH(ScaleAddFloat64)(a, scale, offset, out, count);
+}
+
+float SumSq(const float* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(SumSqFloat32)(a, count);
+}
+
+double SumSq(const double* HWY_RESTRICT a, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(SumSqFloat64)(a, count);
+}
+
+float SumAbsDiff(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(SumAbsDiffFloat32)(a, b, count);
+}
+
+double SumAbsDiff(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(SumAbsDiffFloat64)(a, b, count);
+}
+
+float SumSqDiff(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(SumSqDiffFloat32)(a, b, count);
+}
+
+double SumSqDiff(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, size_t count) {
+    return HWY_DYNAMIC_DISPATCH(SumSqDiffFloat64)(a, b, count);
+}
+
+// =============================================================================
+// Prefetch Utilities
+// =============================================================================
+
+void AddNoPrefetch(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                   float* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AddNoPrefetchFloat32)(a, b, out, count);
+}
+
+void AddNoPrefetch(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                   double* HWY_RESTRICT out, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AddNoPrefetchFloat64)(a, b, out, count);
+}
+
+void ProcessWithPrefetch(const float* HWY_RESTRICT in, float* HWY_RESTRICT out, size_t count,
+                         size_t stride) {
+    HWY_DYNAMIC_DISPATCH(ProcessWithPrefetchFloat32)(in, out, count, stride);
+}
+
 // Priority 1: Select Operations
 
 void Select(float* HWY_RESTRICT out, const uint8_t* HWY_RESTRICT mask,
@@ -2239,6 +2552,32 @@ void Atan2(float* HWY_RESTRICT out, const float* HWY_RESTRICT y, const float* HW
 void Atan2(double* HWY_RESTRICT out, const double* HWY_RESTRICT y, const double* HWY_RESTRICT x,
            size_t count) {
     HWY_DYNAMIC_DISPATCH(Atan2Float64)(out, y, x, count);
+}
+
+// Priority 2: Inverse Hyperbolic Operations
+
+void Asinh(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AsinhFloat32)(out, a, count);
+}
+
+void Asinh(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AsinhFloat64)(out, a, count);
+}
+
+void Acosh(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AcoshFloat32)(out, a, count);
+}
+
+void Acosh(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AcoshFloat64)(out, a, count);
+}
+
+void Atanh(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AtanhFloat32)(out, a, count);
+}
+
+void Atanh(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, size_t count) {
+    HWY_DYNAMIC_DISPATCH(AtanhFloat64)(out, a, count);
 }
 
 // Priority 2: Rounding Operations
@@ -2517,6 +2856,692 @@ Result<void> DispatchTanh(void* out, const void* a, size_t count, ScalarType dty
         return {};
     default:
         return Error(ErrorCode::kUnsupportedType, "DispatchTanh: unsupported type (floats only)");
+    }
+}
+
+// =============================================================================
+// Extended Transcendental Dispatchers
+// =============================================================================
+
+Result<void> DispatchExp2(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Exp2(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Exp2(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchExp2: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchLog2(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Log2(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Log2(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchLog2: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchLog10(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Log10(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Log10(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchLog10: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchSinh(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Sinh(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Sinh(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchSinh: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchCosh(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Cosh(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Cosh(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchCosh: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchAsinh(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Asinh(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Asinh(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchAsinh: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchAcosh(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Acosh(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Acosh(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchAcosh: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchAtanh(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Atanh(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Atanh(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchAtanh: unsupported type (floats only)");
+    }
+}
+
+// =============================================================================
+// Inverse Trigonometric Dispatchers
+// =============================================================================
+
+Result<void> DispatchAsin(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Asin(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Asin(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchAsin: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchAcos(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Acos(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Acos(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchAcos: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchAtan(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Atan(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Atan(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchAtan: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchAtan2(void* out, const void* y, const void* x, size_t count,
+                           ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Atan2(static_cast<float*>(out), static_cast<const float*>(y), static_cast<const float*>(x),
+              count);
+        return {};
+    case ScalarType::kFloat64:
+        Atan2(static_cast<double*>(out), static_cast<const double*>(y),
+              static_cast<const double*>(x), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchAtan2: unsupported type (floats only)");
+    }
+}
+
+// =============================================================================
+// FMA Variant Dispatchers
+// =============================================================================
+
+Result<void> DispatchMulSub(void* out, const void* a, const void* b, const void* c, size_t count,
+                            ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        MulSub(static_cast<float*>(out), static_cast<const float*>(a), static_cast<const float*>(b),
+               static_cast<const float*>(c), count);
+        return {};
+    case ScalarType::kFloat64:
+        MulSub(static_cast<double*>(out), static_cast<const double*>(a),
+               static_cast<const double*>(b), static_cast<const double*>(c), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchMulSub: unsupported type (floats only)");
+    }
+}
+
+Result<void> DispatchNegMulAdd(void* out, const void* a, const void* b, const void* c, size_t count,
+                               ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        NegMulAdd(static_cast<float*>(out), static_cast<const float*>(a),
+                  static_cast<const float*>(b), static_cast<const float*>(c), count);
+        return {};
+    case ScalarType::kFloat64:
+        NegMulAdd(static_cast<double*>(out), static_cast<const double*>(a),
+                  static_cast<const double*>(b), static_cast<const double*>(c), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType,
+                     "DispatchNegMulAdd: unsupported type (floats only)");
+    }
+}
+
+// =============================================================================
+// Reduction Dispatchers
+// =============================================================================
+
+Result<float> DispatchReduceSum(const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        return ReduceSum(static_cast<const float*>(a), count);
+    case ScalarType::kFloat64:
+        return static_cast<float>(ReduceSum(static_cast<const double*>(a), count));
+    case ScalarType::kInt32:
+        return static_cast<float>(ReduceSum(static_cast<const int32_t*>(a), count));
+    case ScalarType::kInt64:
+        return static_cast<float>(ReduceSum(static_cast<const int64_t*>(a), count));
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchReduceSum: unsupported type");
+    }
+}
+
+Result<float> DispatchReduceMin(const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        return ReduceMin(static_cast<const float*>(a), count);
+    case ScalarType::kFloat64:
+        return static_cast<float>(ReduceMin(static_cast<const double*>(a), count));
+    case ScalarType::kInt32:
+        return static_cast<float>(ReduceMin(static_cast<const int32_t*>(a), count));
+    case ScalarType::kInt64:
+        return static_cast<float>(ReduceMin(static_cast<const int64_t*>(a), count));
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchReduceMin: unsupported type");
+    }
+}
+
+Result<float> DispatchReduceMax(const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        return ReduceMax(static_cast<const float*>(a), count);
+    case ScalarType::kFloat64:
+        return static_cast<float>(ReduceMax(static_cast<const double*>(a), count));
+    case ScalarType::kInt32:
+        return static_cast<float>(ReduceMax(static_cast<const int32_t*>(a), count));
+    case ScalarType::kInt64:
+        return static_cast<float>(ReduceMax(static_cast<const int64_t*>(a), count));
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchReduceMax: unsupported type");
+    }
+}
+
+// =============================================================================
+// Comparison Dispatchers (produce float masks: 1.0f for true, 0.0f for false)
+// =============================================================================
+
+// Helper to convert uint8 mask to float mask
+namespace {
+void MaskToFloat(float* HWY_RESTRICT out, const uint8_t* HWY_RESTRICT mask, size_t count) {
+    for (size_t i = 0; i < count; ++i) {
+        out[i] = mask[i] ? 1.0f : 0.0f;
+    }
+}
+}  // namespace
+
+Result<void> DispatchEq(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType,
+                     "DispatchEq: only float32 supported for float masks");
+    }
+    // Use temporary uint8 mask, then convert to float
+    std::vector<uint8_t> mask(count);
+    Eq(mask.data(), static_cast<const float*>(a), static_cast<const float*>(b), count);
+    MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+Result<void> DispatchNe(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType,
+                     "DispatchNe: only float32 supported for float masks");
+    }
+    std::vector<uint8_t> mask(count);
+    Ne(mask.data(), static_cast<const float*>(a), static_cast<const float*>(b), count);
+    MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+Result<void> DispatchLt(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType,
+                     "DispatchLt: only float32 supported for float masks");
+    }
+    std::vector<uint8_t> mask(count);
+    Lt(mask.data(), static_cast<const float*>(a), static_cast<const float*>(b), count);
+    MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+Result<void> DispatchLe(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType,
+                     "DispatchLe: only float32 supported for float masks");
+    }
+    std::vector<uint8_t> mask(count);
+    Le(mask.data(), static_cast<const float*>(a), static_cast<const float*>(b), count);
+    MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+Result<void> DispatchGt(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType,
+                     "DispatchGt: only float32 supported for float masks");
+    }
+    std::vector<uint8_t> mask(count);
+    Gt(mask.data(), static_cast<const float*>(a), static_cast<const float*>(b), count);
+    MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+Result<void> DispatchGe(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType,
+                     "DispatchGe: only float32 supported for float masks");
+    }
+    std::vector<uint8_t> mask(count);
+    Ge(mask.data(), static_cast<const float*>(a), static_cast<const float*>(b), count);
+    MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+// =============================================================================
+// Element-wise Min/Max Dispatchers
+// =============================================================================
+
+Result<void> DispatchMin(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Min(static_cast<float*>(out), static_cast<const float*>(a), static_cast<const float*>(b),
+            count);
+        return {};
+    case ScalarType::kFloat64:
+        Min(static_cast<double*>(out), static_cast<const double*>(a), static_cast<const double*>(b),
+            count);
+        return {};
+    case ScalarType::kInt32:
+        Min(static_cast<int32_t*>(out), static_cast<const int32_t*>(a),
+            static_cast<const int32_t*>(b), count);
+        return {};
+    case ScalarType::kInt64:
+        Min(static_cast<int64_t*>(out), static_cast<const int64_t*>(a),
+            static_cast<const int64_t*>(b), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchMin: unsupported type");
+    }
+}
+
+Result<void> DispatchMax(void* out, const void* a, const void* b, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Max(static_cast<float*>(out), static_cast<const float*>(a), static_cast<const float*>(b),
+            count);
+        return {};
+    case ScalarType::kFloat64:
+        Max(static_cast<double*>(out), static_cast<const double*>(a), static_cast<const double*>(b),
+            count);
+        return {};
+    case ScalarType::kInt32:
+        Max(static_cast<int32_t*>(out), static_cast<const int32_t*>(a),
+            static_cast<const int32_t*>(b), count);
+        return {};
+    case ScalarType::kInt64:
+        Max(static_cast<int64_t*>(out), static_cast<const int64_t*>(a),
+            static_cast<const int64_t*>(b), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchMax: unsupported type");
+    }
+}
+
+// =============================================================================
+// Conditional Dispatchers
+// =============================================================================
+
+Result<void> DispatchWhere(void* out, const void* mask, const void* a, const void* b, size_t count,
+                           ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType, "DispatchWhere: only float32 supported");
+    }
+    // Convert float mask (non-zero = true) to uint8 mask
+    const float* float_mask = static_cast<const float*>(mask);
+    std::vector<uint8_t> uint8_mask(count);
+    for (size_t i = 0; i < count; ++i) {
+        uint8_mask[i] = (float_mask[i] != 0.0f) ? 0xFF : 0x00;
+    }
+    // Use existing Select function
+    Select(static_cast<float*>(out), uint8_mask.data(), static_cast<const float*>(a),
+           static_cast<const float*>(b), count);
+    return {};
+}
+
+// =============================================================================
+// Factory Dispatchers
+// =============================================================================
+
+Result<void> DispatchFill(void* out, float value, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Fill(static_cast<float*>(out), value, count);
+        return {};
+    case ScalarType::kFloat64:
+        Fill(static_cast<double*>(out), static_cast<double>(value), count);
+        return {};
+    case ScalarType::kInt32:
+        Fill(static_cast<int32_t*>(out), static_cast<int32_t>(value), count);
+        return {};
+    case ScalarType::kInt64:
+        Fill(static_cast<int64_t*>(out), static_cast<int64_t>(value), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchFill: unsupported type");
+    }
+}
+
+Result<void> DispatchArange(void* out, float start, float step, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType, "DispatchArange: only float32 supported");
+    }
+    // Generate arithmetic sequence: out[i] = start + i * step
+    // Use SIMD: first generate iota [0, 1, 2, ...], then multiply by step, then add start
+    float* out_f32 = static_cast<float*>(out);
+
+    // Generate [0, 1, 2, 3, ...]
+    Iota(out_f32, 0.0f, count);
+
+    // Multiply by step: out[i] = i * step
+    if (step != 1.0f) {
+        std::vector<float> step_vec(count, step);
+        Mul(out_f32, out_f32, step_vec.data(), count);
+    }
+
+    // Add start: out[i] = start + i * step
+    if (start != 0.0f) {
+        std::vector<float> start_vec(count, start);
+        Add(out_f32, out_f32, start_vec.data(), count);
+    }
+
+    return {};
+}
+
+// =============================================================================
+// Fused Operation Dispatchers
+// =============================================================================
+
+Result<void> DispatchLerp(void* out, const void* a, const void* b, float t, size_t count,
+                          ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType, "DispatchLerp: only float32 supported");
+    }
+    // lerp(a, b, t) = a + t * (b - a) = (1-t) * a + t * b
+    float* out_f32 = static_cast<float*>(out);
+    const float* a_f32 = static_cast<const float*>(a);
+    const float* b_f32 = static_cast<const float*>(b);
+
+    // Compute t_vec and one_minus_t_vec
+    std::vector<float> t_vec(count, t);
+    std::vector<float> one_minus_t_vec(count, 1.0f - t);
+    std::vector<float> temp(count);
+
+    // temp = (1-t) * a
+    Mul(temp.data(), a_f32, one_minus_t_vec.data(), count);
+
+    // out = t * b
+    Mul(out_f32, b_f32, t_vec.data(), count);
+
+    // out = (1-t) * a + t * b
+    Add(out_f32, out_f32, temp.data(), count);
+
+    return {};
+}
+
+// =============================================================================
+// Additional Transcendental Dispatchers
+// =============================================================================
+
+Result<void> DispatchTan(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Tan(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Tan(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchTan: unsupported type");
+    }
+}
+
+Result<void> DispatchSigmoid(void* out, const void* a, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType, "DispatchSigmoid: only float32 supported");
+    }
+    // sigmoid(x) = 1 / (1 + exp(-x))
+    float* out_f32 = static_cast<float*>(out);
+    const float* a_f32 = static_cast<const float*>(a);
+
+    // Step 1: negate input -> -x
+    Neg(out_f32, a_f32, count);
+
+    // Step 2: exp(-x)
+    Exp(out_f32, out_f32, count);
+
+    // Step 3: 1 + exp(-x)
+    std::vector<float> ones(count, 1.0f);
+    Add(out_f32, out_f32, ones.data(), count);
+
+    // Step 4: 1 / (1 + exp(-x))
+    // Use reciprocal approximation via Div: ones / (1 + exp(-x))
+    Div(out_f32, ones.data(), out_f32, count);
+
+    return {};
+}
+
+// =============================================================================
+// Rounding Dispatchers
+// =============================================================================
+
+Result<void> DispatchFloor(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Floor(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Floor(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchFloor: unsupported type");
+    }
+}
+
+Result<void> DispatchCeil(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Ceil(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Ceil(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchCeil: unsupported type");
+    }
+}
+
+Result<void> DispatchRound(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Round(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Round(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchRound: unsupported type");
+    }
+}
+
+Result<void> DispatchTrunc(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kFloat32:
+        Trunc(static_cast<float*>(out), static_cast<const float*>(a), count);
+        return {};
+    case ScalarType::kFloat64:
+        Trunc(static_cast<double*>(out), static_cast<const double*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchTrunc: unsupported type");
+    }
+}
+
+// =============================================================================
+// Special Value Check Dispatchers
+// =============================================================================
+
+namespace {
+void Uint8MaskToFloat(float* HWY_RESTRICT out, const uint8_t* HWY_RESTRICT mask, size_t count) {
+    for (size_t i = 0; i < count; ++i) {
+        out[i] = mask[i] ? 1.0f : 0.0f;
+    }
+}
+}  // namespace
+
+Result<void> DispatchIsNaN(void* out, const void* a, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType, "DispatchIsNaN: only float32 supported");
+    }
+    std::vector<uint8_t> mask(count);
+    IsNaN(mask.data(), static_cast<const float*>(a), count);
+    Uint8MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+Result<void> DispatchIsInf(void* out, const void* a, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType, "DispatchIsInf: only float32 supported");
+    }
+    std::vector<uint8_t> mask(count);
+    IsInf(mask.data(), static_cast<const float*>(a), count);
+    Uint8MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+Result<void> DispatchIsFinite(void* out, const void* a, size_t count, ScalarType dtype) {
+    if (dtype != ScalarType::kFloat32) {
+        return Error(ErrorCode::kUnsupportedType, "DispatchIsFinite: only float32 supported");
+    }
+    std::vector<uint8_t> mask(count);
+    IsFinite(mask.data(), static_cast<const float*>(a), count);
+    Uint8MaskToFloat(static_cast<float*>(out), mask.data(), count);
+    return {};
+}
+
+// Bitwise Operation Dispatchers
+Result<void> DispatchBitwiseAnd(void* out, const void* a, const void* b, size_t count,
+                                ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kInt32:
+        BitwiseAnd(static_cast<int32_t*>(out), static_cast<const int32_t*>(a),
+                   static_cast<const int32_t*>(b), count);
+        return {};
+    case ScalarType::kInt64:
+        BitwiseAnd(static_cast<int64_t*>(out), static_cast<const int64_t*>(a),
+                   static_cast<const int64_t*>(b), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchBitwiseAnd: only int32/int64 supported");
+    }
+}
+
+Result<void> DispatchBitwiseOr(void* out, const void* a, const void* b, size_t count,
+                               ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kInt32:
+        BitwiseOr(static_cast<int32_t*>(out), static_cast<const int32_t*>(a),
+                  static_cast<const int32_t*>(b), count);
+        return {};
+    case ScalarType::kInt64:
+        BitwiseOr(static_cast<int64_t*>(out), static_cast<const int64_t*>(a),
+                  static_cast<const int64_t*>(b), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchBitwiseOr: only int32/int64 supported");
+    }
+}
+
+Result<void> DispatchBitwiseXor(void* out, const void* a, const void* b, size_t count,
+                                ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kInt32:
+        BitwiseXor(static_cast<int32_t*>(out), static_cast<const int32_t*>(a),
+                   static_cast<const int32_t*>(b), count);
+        return {};
+    case ScalarType::kInt64:
+        BitwiseXor(static_cast<int64_t*>(out), static_cast<const int64_t*>(a),
+                   static_cast<const int64_t*>(b), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchBitwiseXor: only int32/int64 supported");
+    }
+}
+
+Result<void> DispatchBitwiseNot(void* out, const void* a, size_t count, ScalarType dtype) {
+    switch (dtype) {
+    case ScalarType::kInt32:
+        BitwiseNot(static_cast<int32_t*>(out), static_cast<const int32_t*>(a), count);
+        return {};
+    case ScalarType::kInt64:
+        BitwiseNot(static_cast<int64_t*>(out), static_cast<const int64_t*>(a), count);
+        return {};
+    default:
+        return Error(ErrorCode::kUnsupportedType, "DispatchBitwiseNot: only int32/int64 supported");
     }
 }
 
@@ -5726,6 +6751,252 @@ void MatVecMul(float* HWY_RESTRICT out, const float* HWY_RESTRICT mat,
 void MatMul(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
             size_t M, size_t K, size_t N) {
     HWY_DYNAMIC_DISPATCH(MatMulFloat32)(out, a, b, M, K, N);
+}
+
+// =============================================================================
+// Dynamic Tier Thresholds Implementation
+// =============================================================================
+//
+// Implements adaptive size-tier thresholds based on:
+// - Cache size detection
+// - Runtime benchmarking for auto-tuning
+// - Configurable thresholds for different use cases
+//
+
+namespace {
+
+// Global threshold state (thread-safe via atomic)
+std::atomic<size_t> g_small_to_medium_threshold{kSizeSmallThreshold};
+std::atomic<size_t> g_medium_to_large_threshold{kSizeMediumThreshold};
+
+// Default thresholds based on common cache sizes
+constexpr size_t kDefaultSmallToMedium = 256;   // ~1KB for floats
+constexpr size_t kDefaultMediumToLarge = 4096;  // ~16KB for floats
+
+}  // namespace
+
+TierThresholds GetDefaultThresholds() {
+    return TierThresholds{kDefaultSmallToMedium, kDefaultMediumToLarge};
+}
+
+TierThresholds GetGlobalThresholds() {
+    return TierThresholds{g_small_to_medium_threshold.load(std::memory_order_relaxed),
+                          g_medium_to_large_threshold.load(std::memory_order_relaxed)};
+}
+
+void SetGlobalThresholds(const TierThresholds& thresholds) {
+    g_small_to_medium_threshold.store(thresholds.small_to_medium, std::memory_order_relaxed);
+    g_medium_to_large_threshold.store(thresholds.medium_to_large, std::memory_order_relaxed);
+}
+
+SizeTier GetSizeTier(size_t count) {
+    const size_t small_thresh = g_small_to_medium_threshold.load(std::memory_order_relaxed);
+    const size_t large_thresh = g_medium_to_large_threshold.load(std::memory_order_relaxed);
+
+    if (count < small_thresh) {
+        return SizeTier::Small;
+    } else if (count < large_thresh) {
+        return SizeTier::Medium;
+    } else {
+        return SizeTier::Large;
+    }
+}
+
+CacheInfo DetectCacheInfo() {
+    CacheInfo info{0, 0, 0};
+
+#if defined(__linux__)
+    // Read cache info from sysfs on Linux
+    auto read_sysfs = [](const char* path) -> size_t {
+        FILE* f = fopen(path, "r");
+        if (!f)
+            return 0;
+
+        char buf[64];
+        if (!fgets(buf, sizeof(buf), f)) {
+            fclose(f);
+            return 0;
+        }
+        fclose(f);
+
+        size_t value = 0;
+        char unit = 'B';
+        if (sscanf(buf, "%zu%c", &value, &unit) >= 1) {
+            if (unit == 'K' || unit == 'k')
+                value *= 1024;
+            else if (unit == 'M' || unit == 'm')
+                value *= 1024 * 1024;
+        }
+        return value;
+    };
+
+    // Try to read L1 data cache size
+    info.l1_data_cache = read_sysfs("/sys/devices/system/cpu/cpu0/cache/index0/size");
+    if (info.l1_data_cache == 0) {
+        // Fallback: try index1 (some systems put L1d there)
+        info.l1_data_cache = read_sysfs("/sys/devices/system/cpu/cpu0/cache/index1/size");
+    }
+
+    // Try to read L2 cache size
+    info.l2_cache = read_sysfs("/sys/devices/system/cpu/cpu0/cache/index2/size");
+
+    // Read cache line size
+    info.cache_line_size =
+        read_sysfs("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size");
+
+#elif defined(__APPLE__)
+    // Use sysctl on macOS
+    size_t size;
+    size_t len = sizeof(size);
+
+    if (sysctlbyname("hw.l1dcachesize", &size, &len, nullptr, 0) == 0) {
+        info.l1_data_cache = size;
+    }
+    if (sysctlbyname("hw.l2cachesize", &size, &len, nullptr, 0) == 0) {
+        info.l2_cache = size;
+    }
+    if (sysctlbyname("hw.cachelinesize", &size, &len, nullptr, 0) == 0) {
+        info.cache_line_size = size;
+    }
+#endif
+
+    // Apply reasonable defaults if detection failed
+    if (info.l1_data_cache == 0) {
+        info.l1_data_cache = 32 * 1024;  // 32KB typical
+    }
+    if (info.l2_cache == 0) {
+        info.l2_cache = 256 * 1024;  // 256KB typical
+    }
+    if (info.cache_line_size == 0) {
+        info.cache_line_size = 64;  // 64 bytes typical
+    }
+
+    return info;
+}
+
+TierThresholds CalculateThresholdsFromCache(const CacheInfo& info) {
+    TierThresholds thresholds;
+
+    // Small threshold: fit working set in L1 (3 arrays for a,b,out)
+    // Use ~1/4 of L1 for safety (other data, instruction cache pressure)
+    size_t l1_floats = info.l1_data_cache / sizeof(float);
+    thresholds.small_to_medium = l1_floats / 12;  // 3 arrays * 4 (safety factor)
+
+    // Medium threshold: fit working set in L2
+    // Use ~1/4 of L2 for safety
+    size_t l2_floats = info.l2_cache / sizeof(float);
+    thresholds.medium_to_large = l2_floats / 12;
+
+    // Clamp to reasonable bounds
+    thresholds.small_to_medium =
+        std::max(size_t{64}, std::min(size_t{1024}, thresholds.small_to_medium));
+    thresholds.medium_to_large =
+        std::max(size_t{1024}, std::min(size_t{65536}, thresholds.medium_to_large));
+
+    // Ensure ordering
+    if (thresholds.medium_to_large <= thresholds.small_to_medium) {
+        thresholds.medium_to_large = thresholds.small_to_medium * 4;
+    }
+
+    return thresholds;
+}
+
+TierThresholds AutoTuneThresholds() {
+    // Benchmark different threshold values and find optimal configuration
+    // This is a simplified auto-tuning that tests a few candidate values
+
+    constexpr size_t kBenchmarkIterations = 100;
+    constexpr std::array<size_t, 4> small_candidates = {64, 128, 256, 512};
+    constexpr std::array<size_t, 4> large_candidates = {2048, 4096, 8192, 16384};
+
+    // Allocate test arrays
+    constexpr size_t kMaxTestSize = 32768;
+    auto a = hwy::AllocateAligned<float>(kMaxTestSize);
+    auto b = hwy::AllocateAligned<float>(kMaxTestSize);
+    auto c = hwy::AllocateAligned<float>(kMaxTestSize);
+
+    if (!a || !b || !c) {
+        // Allocation failed, use cache-based defaults
+        return CalculateThresholdsFromCache(DetectCacheInfo());
+    }
+
+    // Initialize with random data
+    for (size_t i = 0; i < kMaxTestSize; ++i) {
+        a[i] = static_cast<float>(i % 100) * 0.01f;
+        b[i] = static_cast<float>((i + 7) % 100) * 0.01f;
+    }
+
+    TierThresholds best_thresholds{256, 4096};
+    double best_score = 0.0;
+
+    // Test combinations
+    for (size_t small_thresh : small_candidates) {
+        for (size_t large_thresh : large_candidates) {
+            if (large_thresh <= small_thresh)
+                continue;
+
+            // Set thresholds
+            SetGlobalThresholds({small_thresh, large_thresh});
+
+            // Benchmark at each tier boundary
+            double total_time = 0.0;
+
+            for (size_t test_size : {small_thresh / 2, small_thresh * 2, large_thresh * 2}) {
+                if (test_size > kMaxTestSize)
+                    test_size = kMaxTestSize;
+
+                auto start = std::chrono::high_resolution_clock::now();
+                for (size_t iter = 0; iter < kBenchmarkIterations; ++iter) {
+                    AddSized(a.get(), b.get(), c.get(), test_size);
+                }
+                auto end = std::chrono::high_resolution_clock::now();
+
+                auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
+                total_time += static_cast<double>(elapsed.count());
+            }
+
+            // Higher score = faster (inverse of time)
+            double score = 1.0 / total_time;
+            if (score > best_score) {
+                best_score = score;
+                best_thresholds = {small_thresh, large_thresh};
+            }
+        }
+    }
+
+    // Set and return best thresholds
+    SetGlobalThresholds(best_thresholds);
+    return best_thresholds;
+}
+
+// Dynamic-threshold versions of size-specialized operations
+void AddSizedDynamic(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                     float* HWY_RESTRICT out, size_t count) {
+    // Use current global thresholds
+    SizeTier tier = GetSizeTier(count);
+
+    switch (tier) {
+    case SizeTier::Small:
+        // Small arrays: fully unrolled, minimal overhead
+        HWY_DYNAMIC_DISPATCH(AddSizedSmallFloat32)(a, b, out, count);
+        break;
+    case SizeTier::Medium:
+        // Medium arrays: 4x unrolled
+        HWY_DYNAMIC_DISPATCH(AddSizedMediumFloat32)(a, b, out, count);
+        break;
+    case SizeTier::Large:
+        // Large arrays: 8x unrolled + prefetching
+        HWY_DYNAMIC_DISPATCH(AddSizedLargeFloat32)(a, b, out, count);
+        break;
+    }
+}
+
+void AddSizedDynamic(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                     double* HWY_RESTRICT out, size_t count) {
+    // For double, use the unified AddSizedFloat64 which has internal tier logic
+    // This is a simplification - full dynamic thresholds for double would require
+    // adding separate Small/Medium/Large variants like float32
+    HWY_DYNAMIC_DISPATCH(AddSizedFloat64)(a, b, out, count);
 }
 
 }  // namespace simd

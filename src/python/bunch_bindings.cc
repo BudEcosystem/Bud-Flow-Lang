@@ -584,6 +584,22 @@ void bind_bunch(nb::module_& m) {
         .def("sin", &bud::Bunch::sin, "Element-wise sine")
         .def("cos", &bud::Bunch::cos, "Element-wise cosine")
         .def("tanh", &bud::Bunch::tanh, "Element-wise hyperbolic tangent")
+        .def("tan", &bud::Bunch::tan, "Element-wise tangent")
+        .def("sigmoid", &bud::Bunch::sigmoid, "Element-wise sigmoid (1/(1+exp(-x)))")
+        .def("floor", &bud::Bunch::floor, "Element-wise floor")
+        .def("ceil", &bud::Bunch::ceil, "Element-wise ceiling")
+        .def("round", &bud::Bunch::round, "Element-wise rounding to nearest integer")
+        .def("trunc", &bud::Bunch::trunc, "Element-wise truncation toward zero")
+        .def("isnan", &bud::Bunch::isnan, "Element-wise NaN check (returns mask)")
+        .def("isinf", &bud::Bunch::isinf, "Element-wise infinity check (returns mask)")
+        .def("isfinite", &bud::Bunch::isfinite, "Element-wise finite check (returns mask)")
+
+        // =====================================================================
+        // Element-wise min/max
+        // =====================================================================
+
+        .def("minimum", &bud::Bunch::minimum, nb::arg("other"), "Element-wise minimum")
+        .def("maximum", &bud::Bunch::maximum, nb::arg("other"), "Element-wise maximum")
 
         // =====================================================================
         // Comparison operators
@@ -648,6 +664,7 @@ void bind_bunch(nb::module_& m) {
         .def("le", &bud::Bunch::le, nb::arg("other"), "Element-wise less-than-or-equal")
         .def("gt", &bud::Bunch::gt, nb::arg("other"), "Element-wise greater-than")
         .def("ge", &bud::Bunch::ge, nb::arg("other"), "Element-wise greater-than-or-equal")
+        .def("ne", &bud::Bunch::ne, nb::arg("other"), "Element-wise not-equal")
 
         // =====================================================================
         // Masked operations
@@ -757,6 +774,39 @@ void bind_bunch(nb::module_& m) {
     m.def(
         "tanh", [](const bud::Bunch& x) { return bud::tanh(x); }, nb::arg("x"),
         "Element-wise hyperbolic tangent");
+    m.def(
+        "tan", [](const bud::Bunch& x) { return bud::tan(x); }, nb::arg("x"),
+        "Element-wise tangent");
+    m.def(
+        "sigmoid", [](const bud::Bunch& x) { return bud::sigmoid(x); }, nb::arg("x"),
+        "Element-wise sigmoid (1/(1+exp(-x)))");
+    m.def(
+        "floor", [](const bud::Bunch& x) { return bud::floor(x); }, nb::arg("x"),
+        "Element-wise floor");
+    m.def(
+        "ceil", [](const bud::Bunch& x) { return bud::ceil(x); }, nb::arg("x"),
+        "Element-wise ceiling");
+    m.def(
+        "round", [](const bud::Bunch& x) { return bud::round(x); }, nb::arg("x"),
+        "Element-wise rounding");
+    m.def(
+        "trunc", [](const bud::Bunch& x) { return bud::trunc(x); }, nb::arg("x"),
+        "Element-wise truncation toward zero");
+    m.def(
+        "isnan", [](const bud::Bunch& x) { return bud::isnan(x); }, nb::arg("x"),
+        "Element-wise NaN check (returns mask)");
+    m.def(
+        "isinf", [](const bud::Bunch& x) { return bud::isinf(x); }, nb::arg("x"),
+        "Element-wise infinity check (returns mask)");
+    m.def(
+        "isfinite", [](const bud::Bunch& x) { return bud::isfinite(x); }, nb::arg("x"),
+        "Element-wise finite check (returns mask)");
+    m.def(
+        "minimum", [](const bud::Bunch& a, const bud::Bunch& b) { return bud::minimum(a, b); },
+        nb::arg("a"), nb::arg("b"), "Element-wise minimum of two Bunches");
+    m.def(
+        "maximum", [](const bud::Bunch& a, const bud::Bunch& b) { return bud::maximum(a, b); },
+        nb::arg("a"), nb::arg("b"), "Element-wise maximum of two Bunches");
 
     // Reductions as free functions
     m.def(

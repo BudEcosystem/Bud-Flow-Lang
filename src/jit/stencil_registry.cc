@@ -799,6 +799,58 @@ static Stencil generateTernaryOpStencil(const std::string& name, ir::OpCode op, 
     return s;
 }
 
+static Stencil generateReductionStencil(const std::string& name, ir::OpCode op, ScalarType dtype) {
+    CodeEmitter e;
+
+    emitPrologue(e);
+
+    // Save args base register
+    // mov x19, x0
+    e.emit32(0xAA0003F3);
+
+    // Load: x0=input, x1=count from args array
+    // For reductions: output is in S0/D0 register after call
+    // Args layout: [output_ptr, input_ptr, count, func_ptr]
+    e.emit32(arm_ldr_offset(0, 19, 8));   // x0 = args[1] (input)
+    e.emit32(arm_ldr_offset(1, 19, 16));  // x1 = args[2] (count)
+    e.emit32(arm_ldr_offset(5, 19, 24));  // x5 = args[3] (func_ptr)
+
+    // blr x5 - call the reduction function
+    e.emit32(arm_blr(5));
+
+    // Result is in S0 (for float32) or D0 (for float64) or X0 (for int)
+    // Load output pointer and store result
+    e.emit32(arm_ldr_offset(20, 19, 0));  // x20 = args[0] (output_ptr)
+
+    if (dtype == ScalarType::kFloat32) {
+        // str s0, [x20]
+        e.emit32(0xBD000280);  // STR S0, [X20]
+    } else if (dtype == ScalarType::kFloat64) {
+        // str d0, [x20]
+        e.emit32(0xFD000280);  // STR D0, [X20]
+    } else {
+        // str x0, [x20]
+        e.emit32(0xF9000280);  // STR X0, [X20]
+    }
+
+    emitEpilogue(e);
+
+    Stencil s;
+    s.name = name;
+    s.op = op;
+    s.dtype = dtype;
+    s.code = std::move(e.code());
+    s.holes = {
+        {0, Stencil::Hole::kAbsAddress64, "output"},
+        {0, Stencil::Hole::kAbsAddress64, "input"},
+        {0, Stencil::Hole::kImmediate64, "count"},
+        {0, Stencil::Hole::kAbsAddress64, "func_ptr"},
+    };
+    s.alignment = 16;
+
+    return s;
+}
+
 // =============================================================================
 // ARM64 NEON Instruction Encodings
 // =============================================================================
@@ -1234,6 +1286,20 @@ void StencilRegistry::initializeBuiltinStencils() {
         registerStencil(x86_64::generateReductionStencil("reduce_min_f32", ir::OpCode::kReduceMin,
                                                          ScalarType::kFloat32));
 
+        // Comparisons (output uint8_t mask, via function pointer dispatch)
+        registerStencil(
+            x86_64::generateBinaryOpStencil("eq_f32", ir::OpCode::kEq, ScalarType::kFloat32));
+        registerStencil(
+            x86_64::generateBinaryOpStencil("ne_f32", ir::OpCode::kNe, ScalarType::kFloat32));
+        registerStencil(
+            x86_64::generateBinaryOpStencil("lt_f32", ir::OpCode::kLt, ScalarType::kFloat32));
+        registerStencil(
+            x86_64::generateBinaryOpStencil("le_f32", ir::OpCode::kLe, ScalarType::kFloat32));
+        registerStencil(
+            x86_64::generateBinaryOpStencil("gt_f32", ir::OpCode::kGt, ScalarType::kFloat32));
+        registerStencil(
+            x86_64::generateBinaryOpStencil("ge_f32", ir::OpCode::kGe, ScalarType::kFloat32));
+
         // Inline SIMD stencils (fastest - override dispatch for common ops)
         // Registered last so they take precedence in the registry
         registerStencil(x86_64::generateInlineAddF32Stencil());
@@ -1268,6 +1334,28 @@ void StencilRegistry::initializeBuiltinStencils() {
         // FMA operations (via function pointer)
         registerStencil(arm64::generateTernaryOpStencil("fma_f32_dispatch", ir::OpCode::kFma,
                                                         ScalarType::kFloat32));
+
+        // Reductions (via function pointer dispatch)
+        registerStencil(arm64::generateReductionStencil("reduce_sum_f32", ir::OpCode::kReduceSum,
+                                                        ScalarType::kFloat32));
+        registerStencil(arm64::generateReductionStencil("reduce_max_f32", ir::OpCode::kReduceMax,
+                                                        ScalarType::kFloat32));
+        registerStencil(arm64::generateReductionStencil("reduce_min_f32", ir::OpCode::kReduceMin,
+                                                        ScalarType::kFloat32));
+
+        // Comparisons (output uint8_t mask, via function pointer dispatch)
+        registerStencil(
+            arm64::generateBinaryOpStencil("eq_f32", ir::OpCode::kEq, ScalarType::kFloat32));
+        registerStencil(
+            arm64::generateBinaryOpStencil("ne_f32", ir::OpCode::kNe, ScalarType::kFloat32));
+        registerStencil(
+            arm64::generateBinaryOpStencil("lt_f32", ir::OpCode::kLt, ScalarType::kFloat32));
+        registerStencil(
+            arm64::generateBinaryOpStencil("le_f32", ir::OpCode::kLe, ScalarType::kFloat32));
+        registerStencil(
+            arm64::generateBinaryOpStencil("gt_f32", ir::OpCode::kGt, ScalarType::kFloat32));
+        registerStencil(
+            arm64::generateBinaryOpStencil("ge_f32", ir::OpCode::kGe, ScalarType::kFloat32));
 
         // Inline NEON stencils (fastest - override dispatch for common ops)
         // Registered last so they take precedence in the registry
@@ -1404,6 +1492,74 @@ void* getHwyFunctionPtr(ir::OpCode op, ScalarType dtype) {
                 static_cast<void (*)(float*, const float*, const float*, size_t)>(simd::Max));
         }
         break;
+
+    // Comparison operations (output uint8_t mask)
+    case ir::OpCode::kEq:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<void (*)(uint8_t*, const float*, const float*, size_t)>(simd::Eq));
+        }
+        break;
+    case ir::OpCode::kNe:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<void (*)(uint8_t*, const float*, const float*, size_t)>(simd::Ne));
+        }
+        break;
+    case ir::OpCode::kLt:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<void (*)(uint8_t*, const float*, const float*, size_t)>(simd::Lt));
+        }
+        break;
+    case ir::OpCode::kLe:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<void (*)(uint8_t*, const float*, const float*, size_t)>(simd::Le));
+        }
+        break;
+    case ir::OpCode::kGt:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<void (*)(uint8_t*, const float*, const float*, size_t)>(simd::Gt));
+        }
+        break;
+    case ir::OpCode::kGe:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<void (*)(uint8_t*, const float*, const float*, size_t)>(simd::Ge));
+        }
+        break;
+
+    // Reduction operations (return scalar)
+    case ir::OpCode::kReduceSum:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<float (*)(const float*, size_t)>(simd::ReduceSum));
+        }
+        break;
+    case ir::OpCode::kReduceMin:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<float (*)(const float*, size_t)>(simd::ReduceMin));
+        }
+        break;
+    case ir::OpCode::kReduceMax:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<float (*)(const float*, size_t)>(simd::ReduceMax));
+        }
+        break;
+
+    // Select operation
+    case ir::OpCode::kSelect:
+        if (dtype == ScalarType::kFloat32) {
+            return reinterpret_cast<void*>(
+                static_cast<void (*)(float*, const uint8_t*, const float*, const float*, size_t)>(
+                    simd::Select));
+        }
+        break;
+
     default:
         break;
     }

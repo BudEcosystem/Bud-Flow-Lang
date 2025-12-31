@@ -277,6 +277,10 @@ ValueId IRBuilder::ge(ValueId lhs, ValueId rhs) {
     return createBinaryOp(OpCode::kGe, lhs, rhs);
 }
 
+ValueId IRBuilder::ne(ValueId lhs, ValueId rhs) {
+    return createBinaryOp(OpCode::kNe, lhs, rhs);
+}
+
 // Select
 ValueId IRBuilder::select(ValueId mask, ValueId true_val, ValueId false_val) {
     auto* true_node = getNode(true_val);

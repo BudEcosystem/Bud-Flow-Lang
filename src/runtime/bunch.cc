@@ -293,9 +293,11 @@ Result<Bunch> Bunch::ones(size_t count, ScalarType type) {
     auto impl = std::make_shared<BunchImpl>();
     BUD_TRY(impl->allocate(count, type));
 
-    float* ptr = static_cast<float*>(impl->data());
-    for (size_t i = 0; i < count; ++i) {
-        ptr[i] = 1.0f;
+    // Use ISA-aware SIMD dispatch
+    auto result = simd::DispatchFill(impl->data(), 1.0f, count, type);
+    if (!result) {
+        spdlog::error("Bunch::ones dispatch failed");
+        return result.error();
     }
 
     return Bunch(std::move(impl));
@@ -305,9 +307,11 @@ Result<Bunch> Bunch::fill(size_t count, float value) {
     auto impl = std::make_shared<BunchImpl>();
     BUD_TRY(impl->allocate(count, ScalarType::kFloat32));
 
-    float* ptr = static_cast<float*>(impl->data());
-    for (size_t i = 0; i < count; ++i) {
-        ptr[i] = value;
+    // Use ISA-aware SIMD dispatch
+    auto result = simd::DispatchFill(impl->data(), value, count, ScalarType::kFloat32);
+    if (!result) {
+        spdlog::error("Bunch::fill dispatch failed");
+        return result.error();
     }
 
     return Bunch(std::move(impl));
@@ -317,9 +321,11 @@ Result<Bunch> Bunch::arange(size_t count, float start, float step) {
     auto impl = std::make_shared<BunchImpl>();
     BUD_TRY(impl->allocate(count, ScalarType::kFloat32));
 
-    float* ptr = static_cast<float*>(impl->data());
-    for (size_t i = 0; i < count; ++i) {
-        ptr[i] = start + static_cast<float>(i) * step;
+    // Use ISA-aware SIMD dispatch
+    auto result = simd::DispatchArange(impl->data(), start, step, count, ScalarType::kFloat32);
+    if (!result) {
+        spdlog::error("Bunch::arange dispatch failed");
+        return result.error();
     }
 
     return Bunch(std::move(impl));
@@ -843,7 +849,135 @@ Bunch Bunch::tanh() const {
     return std::move(*result);
 }
 
-// Reductions with null pointer safety
+Bunch Bunch::tan() const {
+    // Tracing path - currently not supported in IR, fall through to direct execution
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchTan(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::tan dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::sigmoid() const {
+    // Tracing path - currently not supported in IR, fall through to direct execution
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchSigmoid(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::sigmoid dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::floor() const {
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchFloor(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::floor dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::ceil() const {
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchCeil(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::ceil dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::round() const {
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchRound(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::round dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::trunc() const {
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchTrunc(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::trunc dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::isnan() const {
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchIsNaN(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::isnan dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::isinf() const {
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchIsInf(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::isinf dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::isfinite() const {
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result = simd::DispatchIsFinite(result->mutableData(), data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::isfinite dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+// Reductions with null pointer safety - using SIMD dispatch
 float Bunch::sum() const {
     if (dtype() != ScalarType::kFloat32) {
         spdlog::warn("Bunch::sum() called on non-float32 type");
@@ -852,16 +986,19 @@ float Bunch::sum() const {
     if (size() == 0) {
         return 0.0f;  // Sum of empty array is 0
     }
-    const float* ptr = static_cast<const float*>(data());
+    const void* ptr = data();
     if (!ptr) {
         spdlog::error("Bunch::sum() data is null (materialization may have failed)");
         return std::numeric_limits<float>::quiet_NaN();
     }
-    float total = 0.0f;
-    for (size_t i = 0; i < size(); ++i) {
-        total += ptr[i];
+
+    // Use ISA-aware SIMD dispatch (includes HWY_EMU128 scalar fallback)
+    auto result = simd::DispatchReduceSum(ptr, size(), dtype());
+    if (!result) {
+        spdlog::error("Bunch::sum() dispatch failed: {}", result.error().toString());
+        return std::numeric_limits<float>::quiet_NaN();
     }
-    return total;
+    return *result;
 }
 
 float Bunch::max() const {
@@ -872,17 +1009,19 @@ float Bunch::max() const {
     if (size() == 0) {
         return -std::numeric_limits<float>::infinity();  // Max of empty is -inf
     }
-    const float* ptr = static_cast<const float*>(data());
+    const void* ptr = data();
     if (!ptr) {
         spdlog::error("Bunch::max() data is null");
         return std::numeric_limits<float>::quiet_NaN();
     }
-    float m = ptr[0];
-    for (size_t i = 1; i < size(); ++i) {
-        if (ptr[i] > m)
-            m = ptr[i];
+
+    // Use ISA-aware SIMD dispatch (includes HWY_EMU128 scalar fallback)
+    auto result = simd::DispatchReduceMax(ptr, size(), dtype());
+    if (!result) {
+        spdlog::error("Bunch::max() dispatch failed: {}", result.error().toString());
+        return std::numeric_limits<float>::quiet_NaN();
     }
-    return m;
+    return *result;
 }
 
 float Bunch::min() const {
@@ -893,17 +1032,19 @@ float Bunch::min() const {
     if (size() == 0) {
         return std::numeric_limits<float>::infinity();  // Min of empty is +inf
     }
-    const float* ptr = static_cast<const float*>(data());
+    const void* ptr = data();
     if (!ptr) {
         spdlog::error("Bunch::min() data is null");
         return std::numeric_limits<float>::quiet_NaN();
     }
-    float m = ptr[0];
-    for (size_t i = 1; i < size(); ++i) {
-        if (ptr[i] < m)
-            m = ptr[i];
+
+    // Use ISA-aware SIMD dispatch (includes HWY_EMU128 scalar fallback)
+    auto result = simd::DispatchReduceMin(ptr, size(), dtype());
+    if (!result) {
+        spdlog::error("Bunch::min() dispatch failed: {}", result.error().toString());
+        return std::numeric_limits<float>::quiet_NaN();
     }
-    return m;
+    return *result;
 }
 
 float Bunch::mean() const {
@@ -953,7 +1094,7 @@ float Bunch::dot(const Bunch& other) const {
     return total;
 }
 
-// Comparisons (produce float masks: 0.0f for false, 1.0f for true)
+// Comparisons (produce float masks: 0.0f for false, 1.0f for true) - using SIMD dispatch
 Bunch Bunch::eq(const Bunch& other) const {
     if (size() != other.size() || dtype() != other.dtype()) {
         spdlog::error("Bunch::eq shape/type mismatch");
@@ -964,18 +1105,27 @@ Bunch Bunch::eq(const Bunch& other) const {
         return *this;
     }
 
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().eq(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
     auto result = Bunch::zeros(size(), dtype());
     if (!result)
         return *this;
 
-    const float* a = static_cast<const float*>(data());
-    const float* b = static_cast<const float*>(other.data());
-    float* out = static_cast<float*>(result->mutableData());
-    if (!a || !b || !out)
+    // Use ISA-aware SIMD dispatch
+    auto dispatch_result =
+        simd::DispatchEq(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::eq dispatch failed");
         return *this;
-
-    for (size_t i = 0; i < size(); ++i) {
-        out[i] = (a[i] == b[i]) ? 1.0f : 0.0f;
     }
 
     return std::move(*result);
@@ -991,18 +1141,26 @@ Bunch Bunch::lt(const Bunch& other) const {
         return *this;
     }
 
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().lt(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
     auto result = Bunch::zeros(size(), dtype());
     if (!result)
         return *this;
 
-    const float* a = static_cast<const float*>(data());
-    const float* b = static_cast<const float*>(other.data());
-    float* out = static_cast<float*>(result->mutableData());
-    if (!a || !b || !out)
+    auto dispatch_result =
+        simd::DispatchLt(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::lt dispatch failed");
         return *this;
-
-    for (size_t i = 0; i < size(); ++i) {
-        out[i] = (a[i] < b[i]) ? 1.0f : 0.0f;
     }
 
     return std::move(*result);
@@ -1018,18 +1176,26 @@ Bunch Bunch::le(const Bunch& other) const {
         return *this;
     }
 
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().le(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
     auto result = Bunch::zeros(size(), dtype());
     if (!result)
         return *this;
 
-    const float* a = static_cast<const float*>(data());
-    const float* b = static_cast<const float*>(other.data());
-    float* out = static_cast<float*>(result->mutableData());
-    if (!a || !b || !out)
+    auto dispatch_result =
+        simd::DispatchLe(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::le dispatch failed");
         return *this;
-
-    for (size_t i = 0; i < size(); ++i) {
-        out[i] = (a[i] <= b[i]) ? 1.0f : 0.0f;
     }
 
     return std::move(*result);
@@ -1045,18 +1211,26 @@ Bunch Bunch::gt(const Bunch& other) const {
         return *this;
     }
 
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().gt(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
     auto result = Bunch::zeros(size(), dtype());
     if (!result)
         return *this;
 
-    const float* a = static_cast<const float*>(data());
-    const float* b = static_cast<const float*>(other.data());
-    float* out = static_cast<float*>(result->mutableData());
-    if (!a || !b || !out)
+    auto dispatch_result =
+        simd::DispatchGt(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::gt dispatch failed");
         return *this;
-
-    for (size_t i = 0; i < size(); ++i) {
-        out[i] = (a[i] > b[i]) ? 1.0f : 0.0f;
     }
 
     return std::move(*result);
@@ -1072,18 +1246,131 @@ Bunch Bunch::ge(const Bunch& other) const {
         return *this;
     }
 
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().ge(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
     auto result = Bunch::zeros(size(), dtype());
     if (!result)
         return *this;
 
-    const float* a = static_cast<const float*>(data());
-    const float* b = static_cast<const float*>(other.data());
-    float* out = static_cast<float*>(result->mutableData());
-    if (!a || !b || !out)
+    auto dispatch_result =
+        simd::DispatchGe(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::ge dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::ne(const Bunch& other) const {
+    if (size() != other.size() || dtype() != other.dtype()) {
+        spdlog::error("Bunch::ne shape/type mismatch");
+        return *this;
+    }
+    if (dtype() != ScalarType::kFloat32) {
+        spdlog::error("Bunch::ne only supports float32");
+        return *this;
+    }
+
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().ne(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
         return *this;
 
-    for (size_t i = 0; i < size(); ++i) {
-        out[i] = (a[i] >= b[i]) ? 1.0f : 0.0f;
+    auto dispatch_result =
+        simd::DispatchNe(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::ne dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::minimum(const Bunch& other) const {
+    if (size() != other.size() || dtype() != other.dtype()) {
+        spdlog::error("Bunch::minimum shape/type mismatch");
+        return *this;
+    }
+    if (dtype() != ScalarType::kFloat32) {
+        spdlog::error("Bunch::minimum only supports float32");
+        return *this;
+    }
+
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().min(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result =
+        simd::DispatchMin(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::minimum dispatch failed");
+        return *this;
+    }
+
+    return std::move(*result);
+}
+
+Bunch Bunch::maximum(const Bunch& other) const {
+    if (size() != other.size() || dtype() != other.dtype()) {
+        spdlog::error("Bunch::maximum shape/type mismatch");
+        return *this;
+    }
+    if (dtype() != ScalarType::kFloat32) {
+        spdlog::error("Bunch::maximum only supports float32");
+        return *this;
+    }
+
+    // Tracing path
+    if (isTracing() || other.isTracing()) {
+        ir::IRModule* module = isTracing() ? impl_->tracingModule() : other.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId lhs_id = getOrCreateValueId(*this, module);
+        ir::ValueId rhs_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().max(lhs_id, rhs_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
+    auto result = Bunch::zeros(size(), dtype());
+    if (!result)
+        return *this;
+
+    auto dispatch_result =
+        simd::DispatchMax(result->mutableData(), data(), other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::maximum dispatch failed");
+        return *this;
     }
 
     return std::move(*result);
@@ -1099,20 +1386,31 @@ Bunch Bunch::where(const Bunch& mask, const Bunch& other) const {
         return *this;
     }
 
+    // Tracing path
+    if (isTracing() || other.isTracing() || mask.isTracing()) {
+        ir::IRModule* module = isTracing()         ? impl_->tracingModule()
+                               : other.isTracing() ? other.impl_->tracingModule()
+                                                   : mask.impl_->tracingModule();
+        if (!module)
+            return *this;
+        ir::ValueId mask_id = getOrCreateValueId(mask, module);
+        ir::ValueId a_id = getOrCreateValueId(*this, module);
+        ir::ValueId b_id = getOrCreateValueId(other, module);
+        ir::ValueId result_id = module->builder().select(mask_id, a_id, b_id);
+        return Bunch::fromTracingValue(module, result_id, size(), dtype());
+    }
+
     auto result = Bunch::zeros(size(), dtype());
     if (!result)
         return *this;
 
-    const float* a = static_cast<const float*>(data());
-    const float* b = static_cast<const float*>(other.data());
-    const float* m = static_cast<const float*>(mask.data());
-    float* out = static_cast<float*>(result->mutableData());
-    if (!a || !b || !m || !out)
+    // Use ISA-aware SIMD dispatch
+    // DispatchWhere: mask selects from 'a' (this) when non-zero, else 'b' (other)
+    auto dispatch_result = simd::DispatchWhere(result->mutableData(), mask.data(), data(),
+                                               other.data(), size(), dtype());
+    if (!dispatch_result) {
+        spdlog::error("Bunch::where dispatch failed");
         return *this;
-
-    // mask != 0.0f selects from this, otherwise from other
-    for (size_t i = 0; i < size(); ++i) {
-        out[i] = (m[i] != 0.0f) ? a[i] : b[i];
     }
 
     return std::move(*result);
@@ -1220,7 +1518,7 @@ Bunch clamp(const Bunch& x, float lo, float hi) {
     return std::move(*result);
 }
 
-// Linear interpolation: a + t * (b - a)
+// Linear interpolation: a + t * (b - a) - using SIMD dispatch
 Bunch lerp(const Bunch& a, const Bunch& b, float t) {
     if (a.size() != b.size()) {
         spdlog::error("lerp: size mismatch");
@@ -1235,17 +1533,12 @@ Bunch lerp(const Bunch& a, const Bunch& b, float t) {
     if (!result)
         return a;
 
-    // lerp(a, b, t) = a + t * (b - a) = (1-t) * a + t * b
-    // Use scalar multiplication and addition
-    const float* a_ptr = static_cast<const float*>(a.data());
-    const float* b_ptr = static_cast<const float*>(b.data());
-    float* out = static_cast<float*>(result->mutableData());
-    if (!a_ptr || !b_ptr || !out)
+    // Use ISA-aware SIMD dispatch: lerp(a, b, t) = (1-t) * a + t * b
+    auto dispatch_result =
+        simd::DispatchLerp(result->mutableData(), a.data(), b.data(), t, a.size(), a.dtype());
+    if (!dispatch_result) {
+        spdlog::error("lerp dispatch failed");
         return a;
-
-    const float one_minus_t = 1.0f - t;
-    for (size_t i = 0; i < a.size(); ++i) {
-        out[i] = one_minus_t * a_ptr[i] + t * b_ptr[i];
     }
 
     return std::move(*result);

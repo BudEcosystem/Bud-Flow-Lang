@@ -112,7 +112,20 @@ class Bunch {
     [[nodiscard]] Bunch log() const;
     [[nodiscard]] Bunch sin() const;
     [[nodiscard]] Bunch cos() const;
+    [[nodiscard]] Bunch tan() const;
     [[nodiscard]] Bunch tanh() const;
+    [[nodiscard]] Bunch sigmoid() const;
+
+    // Rounding operations
+    [[nodiscard]] Bunch floor() const;
+    [[nodiscard]] Bunch ceil() const;
+    [[nodiscard]] Bunch round() const;
+    [[nodiscard]] Bunch trunc() const;
+
+    // Special value checks (return mask Bunch)
+    [[nodiscard]] Bunch isnan() const;
+    [[nodiscard]] Bunch isinf() const;
+    [[nodiscard]] Bunch isfinite() const;
 
     // Reductions
     [[nodiscard]] float sum() const;
@@ -123,10 +136,15 @@ class Bunch {
 
     // Comparison (returns mask Bunch)
     [[nodiscard]] Bunch eq(const Bunch& other) const;
+    [[nodiscard]] Bunch ne(const Bunch& other) const;
     [[nodiscard]] Bunch lt(const Bunch& other) const;
     [[nodiscard]] Bunch le(const Bunch& other) const;
     [[nodiscard]] Bunch gt(const Bunch& other) const;
     [[nodiscard]] Bunch ge(const Bunch& other) const;
+
+    // Element-wise min/max (different from reductions)
+    [[nodiscard]] Bunch minimum(const Bunch& other) const;
+    [[nodiscard]] Bunch maximum(const Bunch& other) const;
 
     // Masked operations
     [[nodiscard]] Bunch where(const Bunch& mask, const Bunch& other) const;
@@ -230,6 +248,39 @@ inline Bunch cos(const Bunch& x) {
 }
 inline Bunch tanh(const Bunch& x) {
     return x.tanh();
+}
+inline Bunch tan(const Bunch& x) {
+    return x.tan();
+}
+inline Bunch sigmoid(const Bunch& x) {
+    return x.sigmoid();
+}
+inline Bunch floor(const Bunch& x) {
+    return x.floor();
+}
+inline Bunch ceil(const Bunch& x) {
+    return x.ceil();
+}
+inline Bunch round(const Bunch& x) {
+    return x.round();
+}
+inline Bunch trunc(const Bunch& x) {
+    return x.trunc();
+}
+inline Bunch isnan(const Bunch& x) {
+    return x.isnan();
+}
+inline Bunch isinf(const Bunch& x) {
+    return x.isinf();
+}
+inline Bunch isfinite(const Bunch& x) {
+    return x.isfinite();
+}
+inline Bunch minimum(const Bunch& a, const Bunch& b) {
+    return a.minimum(b);
+}
+inline Bunch maximum(const Bunch& a, const Bunch& b) {
+    return a.maximum(b);
 }
 
 inline float sum(const Bunch& x) {

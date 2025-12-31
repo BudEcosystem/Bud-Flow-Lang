@@ -1022,6 +1022,421 @@ HWY_ATTR int64_t ReduceSumInt64(const int64_t* HWY_RESTRICT a, size_t count) {
     return result;
 }
 
+// =============================================================================
+// Optimized Reductions with Multiple Accumulators (2-4x faster)
+// =============================================================================
+// These functions use 4 independent accumulators to hide instruction latency.
+// The key insight is that modern CPUs can execute multiple independent ADD/MUL
+// operations per cycle, but data dependencies force sequential execution.
+// By using 4 independent accumulators, we can keep the pipeline full.
+//
+// Reference: https://en.algorithmica.org/hpc/simd/reduction/
+// =============================================================================
+
+HWY_ATTR float ReduceSumFastFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    // Use 4 independent accumulators to hide latency
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+
+    // Main loop: process 4 vectors per iteration
+    const size_t stride = 4 * N;
+    for (; i + stride <= count; i += stride) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+        sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+        sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+    }
+
+    // Handle remaining vectors (1-3 vectors)
+    for (; i + N <= count; i += N) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+    }
+
+    // Combine accumulators and reduce to scalar
+    const auto sum01 = hn::Add(sum0, sum1);
+    const auto sum23 = hn::Add(sum2, sum3);
+    const auto total = hn::Add(sum01, sum23);
+    float result = hn::ReduceSum(d, total);
+
+    // Handle scalar remainder
+    for (; i < count; ++i) {
+        result += a[i];
+    }
+
+    return result;
+}
+
+HWY_ATTR double ReduceSumFastFloat64(const double* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+        sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+        sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+    }
+
+    for (; i + N <= count; i += N) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    double result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i];
+    }
+
+    return result;
+}
+
+HWY_ATTR int32_t ReduceSumFastInt32(const int32_t* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0;
+
+    const hn::ScalableTag<int32_t> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+        sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+        sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+    }
+
+    for (; i + N <= count; i += N) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    int32_t result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i];
+    }
+
+    return result;
+}
+
+HWY_ATTR int64_t ReduceSumFastInt64(const int64_t* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0;
+
+    const hn::ScalableTag<int64_t> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+        sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+        sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+    }
+
+    for (; i + N <= count; i += N) {
+        sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    int64_t result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i];
+    }
+
+    return result;
+}
+
+HWY_ATTR float ReduceMinFastFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return std::numeric_limits<float>::infinity();
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto inf = hn::Set(d, std::numeric_limits<float>::infinity());
+
+    auto min0 = inf, min1 = inf, min2 = inf, min3 = inf;
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        min0 = hn::Min(min0, hn::LoadU(d, a + i));
+        min1 = hn::Min(min1, hn::LoadU(d, a + i + N));
+        min2 = hn::Min(min2, hn::LoadU(d, a + i + 2 * N));
+        min3 = hn::Min(min3, hn::LoadU(d, a + i + 3 * N));
+    }
+
+    for (; i + N <= count; i += N) {
+        min0 = hn::Min(min0, hn::LoadU(d, a + i));
+    }
+
+    const auto total = hn::Min(hn::Min(min0, min1), hn::Min(min2, min3));
+    float result = hn::ReduceMin(d, total);
+
+    for (; i < count; ++i) {
+        result = std::min(result, a[i]);
+    }
+
+    return result;
+}
+
+HWY_ATTR float ReduceMaxFastFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return -std::numeric_limits<float>::infinity();
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto neg_inf = hn::Set(d, -std::numeric_limits<float>::infinity());
+
+    auto max0 = neg_inf, max1 = neg_inf, max2 = neg_inf, max3 = neg_inf;
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        max0 = hn::Max(max0, hn::LoadU(d, a + i));
+        max1 = hn::Max(max1, hn::LoadU(d, a + i + N));
+        max2 = hn::Max(max2, hn::LoadU(d, a + i + 2 * N));
+        max3 = hn::Max(max3, hn::LoadU(d, a + i + 3 * N));
+    }
+
+    for (; i + N <= count; i += N) {
+        max0 = hn::Max(max0, hn::LoadU(d, a + i));
+    }
+
+    const auto total = hn::Max(hn::Max(max0, max1), hn::Max(max2, max3));
+    float result = hn::ReduceMax(d, total);
+
+    for (; i < count; ++i) {
+        result = std::max(result, a[i]);
+    }
+
+    return result;
+}
+
+HWY_ATTR float DotFastFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                              size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        const auto a0 = hn::LoadU(d, a + i);
+        const auto a1 = hn::LoadU(d, a + i + N);
+        const auto a2 = hn::LoadU(d, a + i + 2 * N);
+        const auto a3 = hn::LoadU(d, a + i + 3 * N);
+
+        const auto b0 = hn::LoadU(d, b + i);
+        const auto b1 = hn::LoadU(d, b + i + N);
+        const auto b2 = hn::LoadU(d, b + i + 2 * N);
+        const auto b3 = hn::LoadU(d, b + i + 3 * N);
+
+        sum0 = hn::MulAdd(a0, b0, sum0);
+        sum1 = hn::MulAdd(a1, b1, sum1);
+        sum2 = hn::MulAdd(a2, b2, sum2);
+        sum3 = hn::MulAdd(a3, b3, sum3);
+    }
+
+    for (; i + N <= count; i += N) {
+        sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    float result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i] * b[i];
+    }
+
+    return result;
+}
+
+HWY_ATTR double DotFastFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                               size_t count) {
+    if (count == 0)
+        return 0.0;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+        sum1 = hn::MulAdd(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N), sum1);
+        sum2 = hn::MulAdd(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N), sum2);
+        sum3 = hn::MulAdd(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N), sum3);
+    }
+
+    for (; i + N <= count; i += N) {
+        sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    double result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i] * b[i];
+    }
+
+    return result;
+}
+
+HWY_ATTR float MeanFastFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0f;
+    return ReduceSumFastFloat32(a, count) / static_cast<float>(count);
+}
+
+HWY_ATTR float SumOfSquaresFastFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        const auto v0 = hn::LoadU(d, a + i);
+        const auto v1 = hn::LoadU(d, a + i + N);
+        const auto v2 = hn::LoadU(d, a + i + 2 * N);
+        const auto v3 = hn::LoadU(d, a + i + 3 * N);
+
+        sum0 = hn::MulAdd(v0, v0, sum0);
+        sum1 = hn::MulAdd(v1, v1, sum1);
+        sum2 = hn::MulAdd(v2, v2, sum2);
+        sum3 = hn::MulAdd(v3, v3, sum3);
+    }
+
+    for (; i + N <= count; i += N) {
+        const auto v = hn::LoadU(d, a + i);
+        sum0 = hn::MulAdd(v, v, sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    float result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i] * a[i];
+    }
+
+    return result;
+}
+
+HWY_ATTR float NormL2FastFloat32(const float* HWY_RESTRICT a, size_t count) {
+    return std::sqrt(SumOfSquaresFastFloat32(a, count));
+}
+
+HWY_ATTR float VarianceFastFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count < 2)
+        return 0.0f;
+
+    // Two-pass algorithm for numerical stability
+    // Pass 1: compute mean
+    const float mean = MeanFastFloat32(a, count);
+
+    // Pass 2: compute sum of squared differences using 4 accumulators
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto vmean = hn::Set(d, mean);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    size_t i = 0;
+    const size_t stride = 4 * N;
+
+    for (; i + stride <= count; i += stride) {
+        const auto diff0 = hn::Sub(hn::LoadU(d, a + i), vmean);
+        const auto diff1 = hn::Sub(hn::LoadU(d, a + i + N), vmean);
+        const auto diff2 = hn::Sub(hn::LoadU(d, a + i + 2 * N), vmean);
+        const auto diff3 = hn::Sub(hn::LoadU(d, a + i + 3 * N), vmean);
+
+        sum0 = hn::MulAdd(diff0, diff0, sum0);
+        sum1 = hn::MulAdd(diff1, diff1, sum1);
+        sum2 = hn::MulAdd(diff2, diff2, sum2);
+        sum3 = hn::MulAdd(diff3, diff3, sum3);
+    }
+
+    for (; i + N <= count; i += N) {
+        const auto diff = hn::Sub(hn::LoadU(d, a + i), vmean);
+        sum0 = hn::MulAdd(diff, diff, sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    float result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        const float diff = a[i] - mean;
+        result += diff * diff;
+    }
+
+    return result / static_cast<float>(count);
+}
+
 HWY_ATTR float ReduceMinFloat32(const float* HWY_RESTRICT a, size_t count) {
     if (count == 0)
         return std::numeric_limits<float>::infinity();
@@ -1600,6 +2015,177 @@ HWY_ATTR void Atan2Float64(double* HWY_RESTRICT out, const double* HWY_RESTRICT 
         const auto vy = hn::LoadN(d, y + i, remaining);
         const auto vx = hn::LoadN(d, x + i, remaining);
         const auto vout = hn::Atan2(d, vy, vx);
+        hn::StoreN(vout, d, out + i, remaining);
+    }
+}
+
+// =============================================================================
+// Priority 2: Inverse Hyperbolic Operations
+// =============================================================================
+
+// asinh(x) = ln(x + sqrt(x² + 1))
+HWY_ATTR void AsinhFloat32(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, size_t count) {
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto one = hn::Set(d, 1.0f);
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        const auto va = hn::LoadU(d, a + i);
+        // asinh(x) = ln(x + sqrt(x² + 1))
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_plus_1 = hn::Add(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_plus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreU(vout, d, out + i);
+    }
+    const size_t remaining = count - i;
+    if (remaining > 0) {
+        const auto va = hn::LoadN(d, a + i, remaining);
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_plus_1 = hn::Add(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_plus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreN(vout, d, out + i, remaining);
+    }
+}
+
+HWY_ATTR void AsinhFloat64(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, size_t count) {
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+    const auto one = hn::Set(d, 1.0);
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        const auto va = hn::LoadU(d, a + i);
+        // asinh(x) = ln(x + sqrt(x² + 1))
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_plus_1 = hn::Add(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_plus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreU(vout, d, out + i);
+    }
+    const size_t remaining = count - i;
+    if (remaining > 0) {
+        const auto va = hn::LoadN(d, a + i, remaining);
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_plus_1 = hn::Add(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_plus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreN(vout, d, out + i, remaining);
+    }
+}
+
+// acosh(x) = ln(x + sqrt(x² - 1)) for x >= 1
+HWY_ATTR void AcoshFloat32(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, size_t count) {
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto one = hn::Set(d, 1.0f);
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        const auto va = hn::LoadU(d, a + i);
+        // acosh(x) = ln(x + sqrt(x² - 1))
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_minus_1 = hn::Sub(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_minus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreU(vout, d, out + i);
+    }
+    const size_t remaining = count - i;
+    if (remaining > 0) {
+        const auto va = hn::LoadN(d, a + i, remaining);
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_minus_1 = hn::Sub(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_minus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreN(vout, d, out + i, remaining);
+    }
+}
+
+HWY_ATTR void AcoshFloat64(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, size_t count) {
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+    const auto one = hn::Set(d, 1.0);
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        const auto va = hn::LoadU(d, a + i);
+        // acosh(x) = ln(x + sqrt(x² - 1))
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_minus_1 = hn::Sub(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_minus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreU(vout, d, out + i);
+    }
+    const size_t remaining = count - i;
+    if (remaining > 0) {
+        const auto va = hn::LoadN(d, a + i, remaining);
+        const auto x2 = hn::Mul(va, va);
+        const auto x2_minus_1 = hn::Sub(x2, one);
+        const auto sqrt_term = hn::Sqrt(x2_minus_1);
+        const auto sum = hn::Add(va, sqrt_term);
+        const auto vout = hn::Log(d, sum);
+        hn::StoreN(vout, d, out + i, remaining);
+    }
+}
+
+// atanh(x) = 0.5 * ln((1 + x) / (1 - x)) for |x| < 1
+HWY_ATTR void AtanhFloat32(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, size_t count) {
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto one = hn::Set(d, 1.0f);
+    const auto half = hn::Set(d, 0.5f);
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        const auto va = hn::LoadU(d, a + i);
+        // atanh(x) = 0.5 * ln((1 + x) / (1 - x))
+        const auto one_plus_x = hn::Add(one, va);
+        const auto one_minus_x = hn::Sub(one, va);
+        const auto ratio = hn::Div(one_plus_x, one_minus_x);
+        const auto log_ratio = hn::Log(d, ratio);
+        const auto vout = hn::Mul(half, log_ratio);
+        hn::StoreU(vout, d, out + i);
+    }
+    const size_t remaining = count - i;
+    if (remaining > 0) {
+        const auto va = hn::LoadN(d, a + i, remaining);
+        const auto one_plus_x = hn::Add(one, va);
+        const auto one_minus_x = hn::Sub(one, va);
+        const auto ratio = hn::Div(one_plus_x, one_minus_x);
+        const auto log_ratio = hn::Log(d, ratio);
+        const auto vout = hn::Mul(half, log_ratio);
+        hn::StoreN(vout, d, out + i, remaining);
+    }
+}
+
+HWY_ATTR void AtanhFloat64(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, size_t count) {
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+    const auto one = hn::Set(d, 1.0);
+    const auto half = hn::Set(d, 0.5);
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        const auto va = hn::LoadU(d, a + i);
+        // atanh(x) = 0.5 * ln((1 + x) / (1 - x))
+        const auto one_plus_x = hn::Add(one, va);
+        const auto one_minus_x = hn::Sub(one, va);
+        const auto ratio = hn::Div(one_plus_x, one_minus_x);
+        const auto log_ratio = hn::Log(d, ratio);
+        const auto vout = hn::Mul(half, log_ratio);
+        hn::StoreU(vout, d, out + i);
+    }
+    const size_t remaining = count - i;
+    if (remaining > 0) {
+        const auto va = hn::LoadN(d, a + i, remaining);
+        const auto one_plus_x = hn::Add(one, va);
+        const auto one_minus_x = hn::Sub(one, va);
+        const auto ratio = hn::Div(one_plus_x, one_minus_x);
+        const auto log_ratio = hn::Log(d, ratio);
+        const auto vout = hn::Mul(half, log_ratio);
         hn::StoreN(vout, d, out + i, remaining);
     }
 }
@@ -8758,6 +9344,1366 @@ HWY_ATTR void MatMulFloat32(float* HWY_RESTRICT out, const float* HWY_RESTRICT a
             }
             out[i * N + j] = sum;
         }
+    }
+}
+
+// =============================================================================
+// Size-Specialized Kernels
+// =============================================================================
+// Different implementations optimized for different array sizes:
+// - Small (<64): fully unrolled, minimal overhead
+// - Medium (64-4096): 4x unrolled loop
+// - Large (>4096): 8x unrolled + prefetching
+
+// Size thresholds
+constexpr size_t kSmallThreshold = 64;
+constexpr size_t kMediumThreshold = 4096;
+
+// Prefetch distance in bytes (typically 2-4 cache lines ahead)
+constexpr size_t kPrefetchDistance = 256;
+
+// -----------------------------------------------------------------------------
+// AddSized - Size-specialized addition
+// -----------------------------------------------------------------------------
+
+// Small array kernel - minimal loop overhead
+HWY_ATTR void AddSizedSmallFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                                   float* HWY_RESTRICT out, size_t count) {
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    size_t i = 0;
+    // Single pass for small arrays
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        hn::StoreU(hn::Add(va, vb), d, out + i);
+    }
+    // Handle remainder
+    for (; i < count; ++i) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+// Medium array kernel - 4x unrolled
+HWY_ATTR void AddSizedMediumFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                                    float* HWY_RESTRICT out, size_t count) {
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const size_t stride = 4 * N;
+
+    size_t i = 0;
+    // 4x unrolled loop
+    for (; i + stride <= count; i += stride) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+
+        auto vb0 = hn::LoadU(d, b + i);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+
+        hn::StoreU(hn::Add(va0, vb0), d, out + i);
+        hn::StoreU(hn::Add(va1, vb1), d, out + i + N);
+        hn::StoreU(hn::Add(va2, vb2), d, out + i + 2 * N);
+        hn::StoreU(hn::Add(va3, vb3), d, out + i + 3 * N);
+    }
+    // Handle remaining vectors
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        hn::StoreU(hn::Add(va, vb), d, out + i);
+    }
+    // Handle scalar remainder
+    for (; i < count; ++i) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+// Large array kernel - 8x unrolled + prefetching
+HWY_ATTR void AddSizedLargeFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                                   float* HWY_RESTRICT out, size_t count) {
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const size_t stride = 8 * N;
+    const size_t prefetch_elems = kPrefetchDistance / sizeof(float);
+
+    size_t i = 0;
+    // 8x unrolled loop with prefetching
+    for (; i + stride <= count; i += stride) {
+        // Prefetch ahead (no fence needed - prefetch is just a hint)
+        if (i + stride + prefetch_elems <= count) {
+            __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+            __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+        }
+
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+        auto va4 = hn::LoadU(d, a + i + 4 * N);
+        auto va5 = hn::LoadU(d, a + i + 5 * N);
+        auto va6 = hn::LoadU(d, a + i + 6 * N);
+        auto va7 = hn::LoadU(d, a + i + 7 * N);
+
+        auto vb0 = hn::LoadU(d, b + i);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+        auto vb4 = hn::LoadU(d, b + i + 4 * N);
+        auto vb5 = hn::LoadU(d, b + i + 5 * N);
+        auto vb6 = hn::LoadU(d, b + i + 6 * N);
+        auto vb7 = hn::LoadU(d, b + i + 7 * N);
+
+        hn::StoreU(hn::Add(va0, vb0), d, out + i);
+        hn::StoreU(hn::Add(va1, vb1), d, out + i + N);
+        hn::StoreU(hn::Add(va2, vb2), d, out + i + 2 * N);
+        hn::StoreU(hn::Add(va3, vb3), d, out + i + 3 * N);
+        hn::StoreU(hn::Add(va4, vb4), d, out + i + 4 * N);
+        hn::StoreU(hn::Add(va5, vb5), d, out + i + 5 * N);
+        hn::StoreU(hn::Add(va6, vb6), d, out + i + 6 * N);
+        hn::StoreU(hn::Add(va7, vb7), d, out + i + 7 * N);
+    }
+    // Handle remaining vectors with 4x unrolling
+    const size_t stride4 = 4 * N;
+    for (; i + stride4 <= count; i += stride4) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+
+        auto vb0 = hn::LoadU(d, b + i);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+
+        hn::StoreU(hn::Add(va0, vb0), d, out + i);
+        hn::StoreU(hn::Add(va1, vb1), d, out + i + N);
+        hn::StoreU(hn::Add(va2, vb2), d, out + i + 2 * N);
+        hn::StoreU(hn::Add(va3, vb3), d, out + i + 3 * N);
+    }
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        hn::StoreU(hn::Add(va, vb), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+// Main dispatcher for AddSized float32
+HWY_ATTR void AddSizedFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                              float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+    if (count < kSmallThreshold) {
+        AddSizedSmallFloat32(a, b, out, count);
+    } else if (count <= kMediumThreshold) {
+        AddSizedMediumFloat32(a, b, out, count);
+    } else {
+        AddSizedLargeFloat32(a, b, out, count);
+    }
+}
+
+// AddSized for double
+HWY_ATTR void AddSizedFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                              double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        // Small: single pass
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            hn::StoreU(hn::Add(va, vb), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] + b[i];
+        }
+    } else if (count <= kMediumThreshold) {
+        // Medium: 4x unrolled
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            auto va0 = hn::LoadU(d, a + i);
+            auto va1 = hn::LoadU(d, a + i + N);
+            auto va2 = hn::LoadU(d, a + i + 2 * N);
+            auto va3 = hn::LoadU(d, a + i + 3 * N);
+            auto vb0 = hn::LoadU(d, b + i);
+            auto vb1 = hn::LoadU(d, b + i + N);
+            auto vb2 = hn::LoadU(d, b + i + 2 * N);
+            auto vb3 = hn::LoadU(d, b + i + 3 * N);
+            hn::StoreU(hn::Add(va0, vb0), d, out + i);
+            hn::StoreU(hn::Add(va1, vb1), d, out + i + N);
+            hn::StoreU(hn::Add(va2, vb2), d, out + i + 2 * N);
+            hn::StoreU(hn::Add(va3, vb3), d, out + i + 3 * N);
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Add(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] + b[i];
+        }
+    } else {
+        // Large: 8x unrolled + prefetch
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(double);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+            }
+            for (size_t j = 0; j < 8; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                hn::StoreU(hn::Add(va, vb), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Add(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] + b[i];
+        }
+    }
+}
+
+// AddSized for int32_t
+HWY_ATTR void AddSizedInt32(const int32_t* HWY_RESTRICT a, const int32_t* HWY_RESTRICT b,
+                            int32_t* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<int32_t> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        // Small: single pass
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            hn::StoreU(hn::Add(va, vb), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] + b[i];
+        }
+    } else if (count <= kMediumThreshold) {
+        // Medium: 4x unrolled
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            auto va0 = hn::LoadU(d, a + i);
+            auto va1 = hn::LoadU(d, a + i + N);
+            auto va2 = hn::LoadU(d, a + i + 2 * N);
+            auto va3 = hn::LoadU(d, a + i + 3 * N);
+            auto vb0 = hn::LoadU(d, b + i);
+            auto vb1 = hn::LoadU(d, b + i + N);
+            auto vb2 = hn::LoadU(d, b + i + 2 * N);
+            auto vb3 = hn::LoadU(d, b + i + 3 * N);
+            hn::StoreU(hn::Add(va0, vb0), d, out + i);
+            hn::StoreU(hn::Add(va1, vb1), d, out + i + N);
+            hn::StoreU(hn::Add(va2, vb2), d, out + i + 2 * N);
+            hn::StoreU(hn::Add(va3, vb3), d, out + i + 3 * N);
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Add(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] + b[i];
+        }
+    } else {
+        // Large: 8x unrolled + prefetch
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(int32_t);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+            }
+            for (size_t j = 0; j < 8; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                hn::StoreU(hn::Add(va, vb), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Add(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] + b[i];
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// MulSized - Size-specialized multiplication
+// -----------------------------------------------------------------------------
+
+HWY_ATTR void MulSizedFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                              float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        // Small: single pass
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            hn::StoreU(hn::Mul(va, vb), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i];
+        }
+    } else if (count <= kMediumThreshold) {
+        // Medium: 4x unrolled
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            auto va0 = hn::LoadU(d, a + i);
+            auto va1 = hn::LoadU(d, a + i + N);
+            auto va2 = hn::LoadU(d, a + i + 2 * N);
+            auto va3 = hn::LoadU(d, a + i + 3 * N);
+            auto vb0 = hn::LoadU(d, b + i);
+            auto vb1 = hn::LoadU(d, b + i + N);
+            auto vb2 = hn::LoadU(d, b + i + 2 * N);
+            auto vb3 = hn::LoadU(d, b + i + 3 * N);
+            hn::StoreU(hn::Mul(va0, vb0), d, out + i);
+            hn::StoreU(hn::Mul(va1, vb1), d, out + i + N);
+            hn::StoreU(hn::Mul(va2, vb2), d, out + i + 2 * N);
+            hn::StoreU(hn::Mul(va3, vb3), d, out + i + 3 * N);
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Mul(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i];
+        }
+    } else {
+        // Large: 8x unrolled + prefetch
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(float);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+            }
+            for (size_t j = 0; j < 8; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                hn::StoreU(hn::Mul(va, vb), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Mul(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i];
+        }
+    }
+}
+
+HWY_ATTR void MulSizedFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                              double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Mul(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i];
+        }
+    } else if (count <= kMediumThreshold) {
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            for (size_t j = 0; j < 4; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                hn::StoreU(hn::Mul(va, vb), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Mul(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i];
+        }
+    } else {
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(double);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+            }
+            for (size_t j = 0; j < 8; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                hn::StoreU(hn::Mul(va, vb), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            hn::StoreU(hn::Mul(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i];
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// FmaSized - Size-specialized fused multiply-add
+// -----------------------------------------------------------------------------
+
+HWY_ATTR void FmaSizedFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                              const float* HWY_RESTRICT c, float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        // Small: single pass with FMA
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            auto vc = hn::LoadU(d, c + i);
+            hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i] + c[i];
+        }
+    } else if (count <= kMediumThreshold) {
+        // Medium: 4x unrolled FMA
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            auto va0 = hn::LoadU(d, a + i);
+            auto va1 = hn::LoadU(d, a + i + N);
+            auto va2 = hn::LoadU(d, a + i + 2 * N);
+            auto va3 = hn::LoadU(d, a + i + 3 * N);
+            auto vb0 = hn::LoadU(d, b + i);
+            auto vb1 = hn::LoadU(d, b + i + N);
+            auto vb2 = hn::LoadU(d, b + i + 2 * N);
+            auto vb3 = hn::LoadU(d, b + i + 3 * N);
+            auto vc0 = hn::LoadU(d, c + i);
+            auto vc1 = hn::LoadU(d, c + i + N);
+            auto vc2 = hn::LoadU(d, c + i + 2 * N);
+            auto vc3 = hn::LoadU(d, c + i + 3 * N);
+            hn::StoreU(hn::MulAdd(va0, vb0, vc0), d, out + i);
+            hn::StoreU(hn::MulAdd(va1, vb1, vc1), d, out + i + N);
+            hn::StoreU(hn::MulAdd(va2, vb2, vc2), d, out + i + 2 * N);
+            hn::StoreU(hn::MulAdd(va3, vb3, vc3), d, out + i + 3 * N);
+        }
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            auto vc = hn::LoadU(d, c + i);
+            hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i] + c[i];
+        }
+    } else {
+        // Large: 8x unrolled + prefetch
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(float);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(c + i + stride + prefetch_elems, 0, 3);
+            }
+            for (size_t j = 0; j < 8; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                auto vc = hn::LoadU(d, c + i + j * N);
+                hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            auto vc = hn::LoadU(d, c + i);
+            hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i] + c[i];
+        }
+    }
+}
+
+HWY_ATTR void FmaSizedFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                              const double* HWY_RESTRICT c, double* HWY_RESTRICT out,
+                              size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            auto vc = hn::LoadU(d, c + i);
+            hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i] + c[i];
+        }
+    } else if (count <= kMediumThreshold) {
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            for (size_t j = 0; j < 4; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                auto vc = hn::LoadU(d, c + i + j * N);
+                hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            auto vc = hn::LoadU(d, c + i);
+            hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i] + c[i];
+        }
+    } else {
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(double);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(c + i + stride + prefetch_elems, 0, 3);
+            }
+            for (size_t j = 0; j < 8; ++j) {
+                auto va = hn::LoadU(d, a + i + j * N);
+                auto vb = hn::LoadU(d, b + i + j * N);
+                auto vc = hn::LoadU(d, c + i + j * N);
+                hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i + j * N);
+            }
+        }
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            auto vc = hn::LoadU(d, c + i);
+            hn::StoreU(hn::MulAdd(va, vb, vc), d, out + i);
+        }
+        for (; i < count; ++i) {
+            out[i] = a[i] * b[i] + c[i];
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ReduceSumSized - Size-specialized reduction
+// -----------------------------------------------------------------------------
+
+HWY_ATTR float ReduceSumSizedFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        // Small: single accumulator
+        auto vsum = hn::Zero(d);
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            vsum = hn::Add(vsum, hn::LoadU(d, a + i));
+        }
+        float result = hn::ReduceSum(d, vsum);
+        for (; i < count; ++i) {
+            result += a[i];
+        }
+        return result;
+    } else if (count <= kMediumThreshold) {
+        // Medium: 4 accumulators (same as ReduceSumFast)
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+            sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+            sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+            sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        }
+        const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+        float result = hn::ReduceSum(d, total);
+        for (; i < count; ++i) {
+            result += a[i];
+        }
+        return result;
+    } else {
+        // Large: 8 accumulators + prefetch
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        auto sum4 = hn::Zero(d);
+        auto sum5 = hn::Zero(d);
+        auto sum6 = hn::Zero(d);
+        auto sum7 = hn::Zero(d);
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(float);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+            }
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+            sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+            sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+            sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+            sum4 = hn::Add(sum4, hn::LoadU(d, a + i + 4 * N));
+            sum5 = hn::Add(sum5, hn::LoadU(d, a + i + 5 * N));
+            sum6 = hn::Add(sum6, hn::LoadU(d, a + i + 6 * N));
+            sum7 = hn::Add(sum7, hn::LoadU(d, a + i + 7 * N));
+        }
+        // Handle remaining with 4x
+        const size_t stride4 = 4 * N;
+        for (; i + stride4 <= count; i += stride4) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+            sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+            sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+            sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        }
+        // Combine all accumulators
+        const auto total = hn::Add(hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3)),
+                                   hn::Add(hn::Add(sum4, sum5), hn::Add(sum6, sum7)));
+        float result = hn::ReduceSum(d, total);
+        for (; i < count; ++i) {
+            result += a[i];
+        }
+        return result;
+    }
+}
+
+HWY_ATTR double ReduceSumSizedFloat64(const double* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        auto vsum = hn::Zero(d);
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            vsum = hn::Add(vsum, hn::LoadU(d, a + i));
+        }
+        double result = hn::ReduceSum(d, vsum);
+        for (; i < count; ++i) {
+            result += a[i];
+        }
+        return result;
+    } else if (count <= kMediumThreshold) {
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+            sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+            sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+            sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        }
+        const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+        double result = hn::ReduceSum(d, total);
+        for (; i < count; ++i) {
+            result += a[i];
+        }
+        return result;
+    } else {
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        auto sum4 = hn::Zero(d);
+        auto sum5 = hn::Zero(d);
+        auto sum6 = hn::Zero(d);
+        auto sum7 = hn::Zero(d);
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(double);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+            }
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+            sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+            sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+            sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+            sum4 = hn::Add(sum4, hn::LoadU(d, a + i + 4 * N));
+            sum5 = hn::Add(sum5, hn::LoadU(d, a + i + 5 * N));
+            sum6 = hn::Add(sum6, hn::LoadU(d, a + i + 6 * N));
+            sum7 = hn::Add(sum7, hn::LoadU(d, a + i + 7 * N));
+        }
+        const size_t stride4 = 4 * N;
+        for (; i + stride4 <= count; i += stride4) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+            sum1 = hn::Add(sum1, hn::LoadU(d, a + i + N));
+            sum2 = hn::Add(sum2, hn::LoadU(d, a + i + 2 * N));
+            sum3 = hn::Add(sum3, hn::LoadU(d, a + i + 3 * N));
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::Add(sum0, hn::LoadU(d, a + i));
+        }
+        const auto total = hn::Add(hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3)),
+                                   hn::Add(hn::Add(sum4, sum5), hn::Add(sum6, sum7)));
+        double result = hn::ReduceSum(d, total);
+        for (; i < count; ++i) {
+            result += a[i];
+        }
+        return result;
+    }
+}
+
+// =============================================================================
+// Fused Kernels
+// =============================================================================
+// Fused operations eliminate temporary arrays and improve cache efficiency
+
+// AddMul: out[i] = (a[i] + b[i]) * c[i]
+HWY_ATTR void AddMulFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                            const float* HWY_RESTRICT c, float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    size_t i = 0;
+    // 4x unrolled loop for better instruction-level parallelism
+    for (; i + 4 * N <= count; i += 4 * N) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+
+        auto vb0 = hn::LoadU(d, b + i);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+
+        auto vc0 = hn::LoadU(d, c + i);
+        auto vc1 = hn::LoadU(d, c + i + N);
+        auto vc2 = hn::LoadU(d, c + i + 2 * N);
+        auto vc3 = hn::LoadU(d, c + i + 3 * N);
+
+        hn::StoreU(hn::Mul(hn::Add(va0, vb0), vc0), d, out + i);
+        hn::StoreU(hn::Mul(hn::Add(va1, vb1), vc1), d, out + i + N);
+        hn::StoreU(hn::Mul(hn::Add(va2, vb2), vc2), d, out + i + 2 * N);
+        hn::StoreU(hn::Mul(hn::Add(va3, vb3), vc3), d, out + i + 3 * N);
+    }
+    // Cleanup loop
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        auto vc = hn::LoadU(d, c + i);
+        hn::StoreU(hn::Mul(hn::Add(va, vb), vc), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = (a[i] + b[i]) * c[i];
+    }
+}
+
+HWY_ATTR void AddMulFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                            const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    size_t i = 0;
+    // 4x unrolled loop for better instruction-level parallelism
+    for (; i + 4 * N <= count; i += 4 * N) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+
+        auto vb0 = hn::LoadU(d, b + i);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+
+        auto vc0 = hn::LoadU(d, c + i);
+        auto vc1 = hn::LoadU(d, c + i + N);
+        auto vc2 = hn::LoadU(d, c + i + 2 * N);
+        auto vc3 = hn::LoadU(d, c + i + 3 * N);
+
+        hn::StoreU(hn::Mul(hn::Add(va0, vb0), vc0), d, out + i);
+        hn::StoreU(hn::Mul(hn::Add(va1, vb1), vc1), d, out + i + N);
+        hn::StoreU(hn::Mul(hn::Add(va2, vb2), vc2), d, out + i + 2 * N);
+        hn::StoreU(hn::Mul(hn::Add(va3, vb3), vc3), d, out + i + 3 * N);
+    }
+    // Cleanup loop
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        auto vc = hn::LoadU(d, c + i);
+        hn::StoreU(hn::Mul(hn::Add(va, vb), vc), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = (a[i] + b[i]) * c[i];
+    }
+}
+
+// SubMul: out[i] = (a[i] - b[i]) * c[i]
+HWY_ATTR void SubMulFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                            const float* HWY_RESTRICT c, float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        auto vc = hn::LoadU(d, c + i);
+        hn::StoreU(hn::Mul(hn::Sub(va, vb), vc), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = (a[i] - b[i]) * c[i];
+    }
+}
+
+HWY_ATTR void SubMulFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                            const double* HWY_RESTRICT c, double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        auto vc = hn::LoadU(d, c + i);
+        hn::StoreU(hn::Mul(hn::Sub(va, vb), vc), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = (a[i] - b[i]) * c[i];
+    }
+}
+
+// Axpy: out[i] = alpha * x[i] + y[i] (uses FMA for better precision)
+HWY_ATTR void AxpyFloat32(float alpha, const float* HWY_RESTRICT x, const float* HWY_RESTRICT y,
+                          float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto valpha = hn::Set(d, alpha);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto vx = hn::LoadU(d, x + i);
+        auto vy = hn::LoadU(d, y + i);
+        // FMA: alpha * x + y
+        hn::StoreU(hn::MulAdd(valpha, vx, vy), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = alpha * x[i] + y[i];
+    }
+}
+
+HWY_ATTR void AxpyFloat64(double alpha, const double* HWY_RESTRICT x, const double* HWY_RESTRICT y,
+                          double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+    const auto valpha = hn::Set(d, alpha);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto vx = hn::LoadU(d, x + i);
+        auto vy = hn::LoadU(d, y + i);
+        hn::StoreU(hn::MulAdd(valpha, vx, vy), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = alpha * x[i] + y[i];
+    }
+}
+
+// Axpby: out[i] = alpha * x[i] + beta * y[i]
+HWY_ATTR void AxpbyFloat32(float alpha, const float* HWY_RESTRICT x, float beta,
+                           const float* HWY_RESTRICT y, float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto valpha = hn::Set(d, alpha);
+    const auto vbeta = hn::Set(d, beta);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto vx = hn::LoadU(d, x + i);
+        auto vy = hn::LoadU(d, y + i);
+        // alpha * x + beta * y = MulAdd(alpha, x, beta * y)
+        hn::StoreU(hn::MulAdd(valpha, vx, hn::Mul(vbeta, vy)), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = alpha * x[i] + beta * y[i];
+    }
+}
+
+HWY_ATTR void AxpbyFloat64(double alpha, const double* HWY_RESTRICT x, double beta,
+                           const double* HWY_RESTRICT y, double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+    const auto valpha = hn::Set(d, alpha);
+    const auto vbeta = hn::Set(d, beta);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto vx = hn::LoadU(d, x + i);
+        auto vy = hn::LoadU(d, y + i);
+        hn::StoreU(hn::MulAdd(valpha, vx, hn::Mul(vbeta, vy)), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = alpha * x[i] + beta * y[i];
+    }
+}
+
+// ScaleAdd: out[i] = scale * a[i] + offset (affine transform)
+HWY_ATTR void ScaleAddFloat32(const float* HWY_RESTRICT a, float scale, float offset,
+                              float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const auto vscale = hn::Set(d, scale);
+    const auto voffset = hn::Set(d, offset);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        hn::StoreU(hn::MulAdd(vscale, va, voffset), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = scale * a[i] + offset;
+    }
+}
+
+HWY_ATTR void ScaleAddFloat64(const double* HWY_RESTRICT a, double scale, double offset,
+                              double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+    const auto vscale = hn::Set(d, scale);
+    const auto voffset = hn::Set(d, offset);
+
+    size_t i = 0;
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        hn::StoreU(hn::MulAdd(vscale, va, voffset), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = scale * a[i] + offset;
+    }
+}
+
+// SumSq: returns sum(a[i]^2) - fused square and reduce
+HWY_ATTR float SumSqFloat32(const float* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    // Use 4 accumulators to hide latency
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    const size_t stride = 4 * N;
+    size_t i = 0;
+    for (; i + stride <= count; i += stride) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+        sum0 = hn::MulAdd(va0, va0, sum0);
+        sum1 = hn::MulAdd(va1, va1, sum1);
+        sum2 = hn::MulAdd(va2, va2, sum2);
+        sum3 = hn::MulAdd(va3, va3, sum3);
+    }
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        sum0 = hn::MulAdd(va, va, sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    float result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i] * a[i];
+    }
+    return result;
+}
+
+HWY_ATTR double SumSqFloat64(const double* HWY_RESTRICT a, size_t count) {
+    if (count == 0)
+        return 0.0;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    const size_t stride = 4 * N;
+    size_t i = 0;
+    for (; i + stride <= count; i += stride) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+        sum0 = hn::MulAdd(va0, va0, sum0);
+        sum1 = hn::MulAdd(va1, va1, sum1);
+        sum2 = hn::MulAdd(va2, va2, sum2);
+        sum3 = hn::MulAdd(va3, va3, sum3);
+    }
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        sum0 = hn::MulAdd(va, va, sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    double result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += a[i] * a[i];
+    }
+    return result;
+}
+
+// SumAbsDiff: returns sum(|a[i] - b[i]|) - L1 distance
+HWY_ATTR float SumAbsDiffFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                                 size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    const size_t stride = 4 * N;
+    size_t i = 0;
+    for (; i + stride <= count; i += stride) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto vb0 = hn::LoadU(d, b + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+        sum0 = hn::Add(sum0, hn::Abs(hn::Sub(va0, vb0)));
+        sum1 = hn::Add(sum1, hn::Abs(hn::Sub(va1, vb1)));
+        sum2 = hn::Add(sum2, hn::Abs(hn::Sub(va2, vb2)));
+        sum3 = hn::Add(sum3, hn::Abs(hn::Sub(va3, vb3)));
+    }
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        sum0 = hn::Add(sum0, hn::Abs(hn::Sub(va, vb)));
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    float result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += std::abs(a[i] - b[i]);
+    }
+    return result;
+}
+
+HWY_ATTR double SumAbsDiffFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                                  size_t count) {
+    if (count == 0)
+        return 0.0;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    const size_t stride = 4 * N;
+    size_t i = 0;
+    for (; i + stride <= count; i += stride) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto vb0 = hn::LoadU(d, b + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+        sum0 = hn::Add(sum0, hn::Abs(hn::Sub(va0, vb0)));
+        sum1 = hn::Add(sum1, hn::Abs(hn::Sub(va1, vb1)));
+        sum2 = hn::Add(sum2, hn::Abs(hn::Sub(va2, vb2)));
+        sum3 = hn::Add(sum3, hn::Abs(hn::Sub(va3, vb3)));
+    }
+    for (; i + N <= count; i += N) {
+        auto va = hn::LoadU(d, a + i);
+        auto vb = hn::LoadU(d, b + i);
+        sum0 = hn::Add(sum0, hn::Abs(hn::Sub(va, vb)));
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    double result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        result += std::abs(a[i] - b[i]);
+    }
+    return result;
+}
+
+// SumSqDiff: returns sum((a[i] - b[i])^2) - squared L2 distance
+HWY_ATTR float SumSqDiffFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                                size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    const size_t stride = 4 * N;
+    size_t i = 0;
+    for (; i + stride <= count; i += stride) {
+        auto diff0 = hn::Sub(hn::LoadU(d, a + i), hn::LoadU(d, b + i));
+        auto diff1 = hn::Sub(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N));
+        auto diff2 = hn::Sub(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N));
+        auto diff3 = hn::Sub(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N));
+        sum0 = hn::MulAdd(diff0, diff0, sum0);
+        sum1 = hn::MulAdd(diff1, diff1, sum1);
+        sum2 = hn::MulAdd(diff2, diff2, sum2);
+        sum3 = hn::MulAdd(diff3, diff3, sum3);
+    }
+    for (; i + N <= count; i += N) {
+        auto diff = hn::Sub(hn::LoadU(d, a + i), hn::LoadU(d, b + i));
+        sum0 = hn::MulAdd(diff, diff, sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    float result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        float diff = a[i] - b[i];
+        result += diff * diff;
+    }
+    return result;
+}
+
+HWY_ATTR double SumSqDiffFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                                 size_t count) {
+    if (count == 0)
+        return 0.0;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    auto sum0 = hn::Zero(d);
+    auto sum1 = hn::Zero(d);
+    auto sum2 = hn::Zero(d);
+    auto sum3 = hn::Zero(d);
+
+    const size_t stride = 4 * N;
+    size_t i = 0;
+    for (; i + stride <= count; i += stride) {
+        auto diff0 = hn::Sub(hn::LoadU(d, a + i), hn::LoadU(d, b + i));
+        auto diff1 = hn::Sub(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N));
+        auto diff2 = hn::Sub(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N));
+        auto diff3 = hn::Sub(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N));
+        sum0 = hn::MulAdd(diff0, diff0, sum0);
+        sum1 = hn::MulAdd(diff1, diff1, sum1);
+        sum2 = hn::MulAdd(diff2, diff2, sum2);
+        sum3 = hn::MulAdd(diff3, diff3, sum3);
+    }
+    for (; i + N <= count; i += N) {
+        auto diff = hn::Sub(hn::LoadU(d, a + i), hn::LoadU(d, b + i));
+        sum0 = hn::MulAdd(diff, diff, sum0);
+    }
+
+    const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+    double result = hn::ReduceSum(d, total);
+
+    for (; i < count; ++i) {
+        double diff = a[i] - b[i];
+        result += diff * diff;
+    }
+    return result;
+}
+
+// =============================================================================
+// Prefetch Utilities
+// =============================================================================
+
+// Add without prefetch - for benchmarking comparison
+HWY_ATTR void AddNoPrefetchFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                                   float* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    size_t i = 0;
+    // Simple 4x unrolled loop without prefetch
+    for (; i + 4 * N <= count; i += 4 * N) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+
+        auto vb0 = hn::LoadU(d, b + i);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+
+        hn::StoreU(hn::Add(va0, vb0), d, out + i);
+        hn::StoreU(hn::Add(va1, vb1), d, out + i + N);
+        hn::StoreU(hn::Add(va2, vb2), d, out + i + 2 * N);
+        hn::StoreU(hn::Add(va3, vb3), d, out + i + 3 * N);
+    }
+    for (; i + N <= count; i += N) {
+        hn::StoreU(hn::Add(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+HWY_ATTR void AddNoPrefetchFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                                   double* HWY_RESTRICT out, size_t count) {
+    if (count == 0)
+        return;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    size_t i = 0;
+    for (; i + 4 * N <= count; i += 4 * N) {
+        auto va0 = hn::LoadU(d, a + i);
+        auto va1 = hn::LoadU(d, a + i + N);
+        auto va2 = hn::LoadU(d, a + i + 2 * N);
+        auto va3 = hn::LoadU(d, a + i + 3 * N);
+
+        auto vb0 = hn::LoadU(d, b + i);
+        auto vb1 = hn::LoadU(d, b + i + N);
+        auto vb2 = hn::LoadU(d, b + i + 2 * N);
+        auto vb3 = hn::LoadU(d, b + i + 3 * N);
+
+        hn::StoreU(hn::Add(va0, vb0), d, out + i);
+        hn::StoreU(hn::Add(va1, vb1), d, out + i + N);
+        hn::StoreU(hn::Add(va2, vb2), d, out + i + 2 * N);
+        hn::StoreU(hn::Add(va3, vb3), d, out + i + 3 * N);
+    }
+    for (; i + N <= count; i += N) {
+        hn::StoreU(hn::Add(hn::LoadU(d, a + i), hn::LoadU(d, b + i)), d, out + i);
+    }
+    for (; i < count; ++i) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+// Process with prefetch for strided access patterns
+HWY_ATTR void ProcessWithPrefetchFloat32(const float* HWY_RESTRICT in, float* HWY_RESTRICT out,
+                                         size_t count, size_t stride) {
+    if (count == 0)
+        return;
+
+    constexpr size_t prefetch_distance = 256 / sizeof(float);  // 64 elements
+
+    for (size_t i = 0; i < count; ++i) {
+        // Prefetch ahead for strided access
+        size_t prefetch_idx = i + prefetch_distance;
+        if (prefetch_idx < count) {
+            __builtin_prefetch(in + prefetch_idx * stride, 0, 3);
+        }
+
+        // Simple copy with stride
+        out[i] = in[i * stride];
     }
 }
 

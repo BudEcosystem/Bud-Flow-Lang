@@ -1039,4 +1039,126 @@ void bind_flow(nb::module_& m) {
     >>> print(f"Tiling: {status['tiling_enabled']}")
     >>> print(f"Tile size: {status['optimal_tile_size_float32']}")
     )doc");
+
+    // =========================================================================
+    // JIT Control and PGO Query APIs (Developer Level)
+    // =========================================================================
+
+    m.def(
+        "get_jit_stats",
+        []() {
+            nb::dict d;
+            auto stats = bud::getCompilationStats();
+            d["total_compilations"] = stats.total_compilations;
+            d["cache_hits"] = stats.cache_hits;
+            d["code_cache_bytes"] = stats.code_cache_bytes;
+            d["avg_compile_time_ms"] = stats.avg_compile_time_ms;
+            d["total_compile_time_ms"] = stats.total_compile_time_ms;
+            return d;
+        },
+        R"doc(
+    Get JIT compilation statistics.
+
+    Returns
+    -------
+    dict
+        Dictionary with:
+        - total_compilations: Number of kernels compiled
+        - cache_hits: Number of cached kernel lookups
+        - code_cache_bytes: Bytes used by compiled code
+        - avg_compile_time_ms: Average compilation time
+        - total_compile_time_ms: Total compilation time
+
+    Examples
+    --------
+    >>> stats = flow.get_jit_stats()
+    >>> print(f"Compiled: {stats['total_compilations']} kernels")
+    )doc");
+
+    m.def(
+        "get_tiered_stats",
+        []() {
+            nb::dict d;
+            auto stats = bud::getTieredStats();
+            d["total_entries"] = stats.total_entries;
+            d["tier0_entries"] = stats.tier0_entries;  // Interpreter
+            d["tier1_entries"] = stats.tier1_entries;  // Copy-patch JIT
+            d["tier2_entries"] = stats.tier2_entries;  // Fused kernels
+
+            // Calculate percentages
+            if (stats.total_entries > 0) {
+                d["tier0_pct"] = 100.0 * stats.tier0_entries / stats.total_entries;
+                d["tier1_pct"] = 100.0 * stats.tier1_entries / stats.total_entries;
+                d["tier2_pct"] = 100.0 * stats.tier2_entries / stats.total_entries;
+            } else {
+                d["tier0_pct"] = 0.0;
+                d["tier1_pct"] = 0.0;
+                d["tier2_pct"] = 0.0;
+            }
+            return d;
+        },
+        R"doc(
+    Get tiered execution statistics.
+
+    The JIT uses 3 execution tiers:
+    - Tier 0: Interpreter (direct Highway dispatch)
+    - Tier 1: Copy-and-patch JIT (compiled stencils)
+    - Tier 2: Fused kernels (optimized operation chains)
+
+    Returns
+    -------
+    dict
+        Dictionary with tier entry counts and percentages
+
+    Examples
+    --------
+    >>> stats = flow.get_tiered_stats()
+    >>> print(f"Tier 0: {stats['tier0_pct']:.1f}%")
+    >>> print(f"Tier 1: {stats['tier1_pct']:.1f}%")
+    >>> print(f"Tier 2: {stats['tier2_pct']:.1f}%")
+    )doc");
+
+    m.def(
+        "reset_jit_stats", []() { bud::resetCompilationStats(); },
+        R"doc(
+    Reset JIT compilation statistics and call counters.
+
+    This clears all cached kernels and resets tier promotion tracking.
+    Useful for benchmarking or debugging.
+
+    Examples
+    --------
+    >>> flow.reset_jit_stats()
+    >>> # Run your code
+    >>> stats = flow.get_tiered_stats()
+    )doc");
+
+    m.def(
+        "get_tier_thresholds",
+        []() {
+            nb::dict d;
+            // These are the current thresholds (read-only for now)
+            d["tier0_to_tier1"] = 10;   // kTier1Threshold
+            d["tier1_to_tier2"] = 100;  // kTier2Threshold
+            d["description"] = "Call count thresholds for tier promotion";
+            return d;
+        },
+        R"doc(
+    Get the tier promotion thresholds.
+
+    Returns the call count thresholds used to promote operations
+    from one tier to the next.
+
+    Returns
+    -------
+    dict
+        Dictionary with:
+        - tier0_to_tier1: Calls before promoting to JIT
+        - tier1_to_tier2: Calls before promoting to fused kernels
+
+    Examples
+    --------
+    >>> thresholds = flow.get_tier_thresholds()
+    >>> print(f"JIT after {thresholds['tier0_to_tier1']} calls")
+    )doc");
 }

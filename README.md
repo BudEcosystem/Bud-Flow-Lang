@@ -1,96 +1,158 @@
 # Bud Flow Lang
 
-A Domain-Specific Language (DSL) for portable high-performance SIMD programming, embedded within Python. Write simple array code, get automatic vectorization, JIT compilation, and near-native performance.
+A high-performance SIMD array library with JIT compilation, designed to outperform NumPy and compete with JAX on CPU workloads.
 
 [![Build Status](https://github.com/BudEcosystem/Bud-Flow-Lang/actions/workflows/ci.yml/badge.svg)](https://github.com/BudEcosystem/Bud-Flow-Lang/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![C++](https://img.shields.io/badge/C%2B%2B-17%2F20-blue.svg)](https://isocpp.org/)
 
-## What is Bud Flow Lang?
+## Performance Highlights
 
-Bud Flow Lang is **not just another array library** - it's a complete domain-specific language with its own:
+Benchmarked on Intel Core i7-10700KF @ 3.80GHz with AVX2 (256-bit SIMD):
 
-- **Intermediate Representation (IR)** in SSA form for optimization
-- **Multi-tier JIT Compiler** with sub-millisecond compilation
-- **Automatic Operation Fusion** achieving 6-30x speedups
-- **Portable SIMD Backend** supporting 10+ CPU architectures
-- **Cache-Aware Memory System** with automatic tiling and prefetching
+| Operation | vs NumPy | vs JAX | Notes |
+|-----------|----------|--------|-------|
+| **SIN** | **2.93x faster** | **4.2x faster** | Highway SIMD transcendentals |
+| **SUM** | **2.82x faster** | **3.4x faster** | Multi-accumulator reductions |
+| **FMA** | **1.93x faster** | **2.3x faster** | Fused multiply-add |
+| **EXP** | **1.55x faster** | **1.2x faster** | Vectorized exponential |
+| **MUL** | **1.36x faster** | **1.5x faster** | SIMD multiplication |
+| **ADD** | **1.29x faster** | **2.1x faster** | SIMD addition |
 
-Think of it as **NumPy's simplicity meets compiler-level optimization**.
+*Tested with arrays of 1K-1M elements. See [benchmarks/](benchmarks/) for full results.*
 
 ## Key Features
 
-### Instant JIT Compilation
+### Three-Tier API for All Skill Levels
 
-Our **Copy-and-Patch JIT compiler** achieves ~1ms compilation time (100x faster than LLVM):
+```python
+import bud_flow_lang_py as flow
+flow.initialize()
+
+# Beginner: NumPy-like simplicity
+a = flow.Bunch.arange(1_000_000)
+b = flow.Bunch.ones(1_000_000) * 2.0
+result = a + b  # Automatic SIMD vectorization
+
+# Developer: Enable optimizations
+flow.set_tiling_enabled(True)      # Cache-aware tiling
+flow.set_prefetch_enabled(True)    # Software prefetching
+result = a.fma(b, c)               # Fused multiply-add
+
+# Expert: Direct Highway SIMD access (coming soon)
+# flow.highway.add(a_ptr, b_ptr, out_ptr, count)
+```
+
+### Sub-Millisecond JIT Compilation
+
+Our **Copy-and-Patch JIT** compiles kernels in ~1ms (100x faster than LLVM):
 
 ```
-Traditional JIT:  Source → IR → Optimization → Code Gen → Machine Code (100ms+)
-Bud Flow Lang:    Source → IR → Stencil Patching → Machine Code (~1ms)
+Traditional:  Source -> IR -> Optimizer -> CodeGen -> Machine Code (100ms+)
+Bud Flow:     Source -> IR -> Stencil Patch -> Machine Code (~1ms)
 ```
 
 ### Tiered Compilation System
 
-Like modern JavaScript engines, we use progressive optimization:
+Inspired by V8 and HotSpot JVMs:
 
-| Tier | Name | Threshold | Description |
-|------|------|-----------|-------------|
-| 0 | Interpreter | - | Collects runtime profiles |
-| 1 | Baseline JIT | 10 calls | Fast copy-and-patch compilation |
-| 2 | Optimizing JIT | 100 calls | Profile-guided optimization |
+| Tier | Threshold | Strategy | Use Case |
+|------|-----------|----------|----------|
+| 0 | Immediate | Highway Interpreter | Cold code |
+| 1 | 10 calls | Copy-and-Patch JIT | Warm code |
+| 2 | 100 calls | Fused Kernels | Hot code |
 
-### Automatic Operation Fusion
+**Dynamic thresholds** adjust based on array size - large arrays JIT faster.
 
-The DSL automatically fuses operations to minimize memory traffic:
+### JIT Optimizations
 
-```python
-# What you write:
-result = (a * b + c) * d
+Five key optimizations implemented with TDD methodology:
 
-# What executes (single fused kernel):
-# - One pass over memory instead of three
-# - 3x fewer memory operations
-# - Automatic FMA instruction usage
-```
+1. **Multi-Accumulator Reductions** - 4 independent accumulators hide latency (2-4x speedup)
+2. **Size-Specialized Kernels** - Optimized paths for small/medium/large arrays
+3. **Kernel Fusion** - FMA, AXPY, and compound operations in single passes
+4. **Software Prefetching** - Cache-line prefetch for large arrays
+5. **Dynamic Tier Thresholds** - Array-size-aware JIT compilation triggers
 
-### Portable SIMD Across Architectures
+### Portable SIMD via Google Highway
 
-Write once, run optimally everywhere:
+Write once, run optimally on any CPU:
 
 | Architecture | SIMD Support |
 |--------------|--------------|
-| x86-64 | SSE4, AVX2, AVX-512, AVX-512BF16 |
+| x86-64 | SSE4.2, AVX2, AVX-512, AVX-512BF16 |
 | ARM64 | NEON, SVE, SVE2 |
 | RISC-V | RVV (Vector Extension) |
-| PowerPC | VSX, VSX3 |
 | WebAssembly | SIMD128 |
-| S390x | z/Architecture Vector |
+| PowerPC | VSX, VSX3 |
 
 ## Quick Start
 
-### Python DSL
+### Installation
+
+```bash
+# Clone repository
+git clone https://github.com/BudEcosystem/Bud-Flow-Lang.git
+cd Bud-Flow-Lang
+
+# Create Python virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# Build with Python bindings
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUD_BUILD_PYTHON=ON
+make -j$(nproc)
+
+# Test installation
+python -c "import bud_flow_lang_py as flow; flow.initialize(); print('Success!')"
+```
+
+### Basic Usage
 
 ```python
 import bud_flow_lang_py as flow
 
-# Initialize the DSL runtime
+# Initialize runtime
 flow.initialize()
 
-# Create arrays (SIMD-aligned automatically)
-a = flow.ones(1_000_000)
-b = flow.full(1_000_000, 2.0)
-c = flow.full(1_000_000, 3.0)
+# Create arrays (automatically SIMD-aligned)
+a = flow.Bunch.arange(1_000_000)
+b = flow.Bunch.ones(1_000_000) * 2.0
+c = flow.Bunch.full(1_000_000, 3.0)
 
-# Operations are JIT-compiled and SIMD-vectorized
-result = flow.fma(a, b, c)  # Fused multiply-add: a*b + c
+# Arithmetic operations
+sum_ab = a + b
+diff = a - b
+prod = a * b
+quot = a / b
 
-# Reductions use multiple accumulators for ILP
-total = result.sum()
-dot_product = flow.dot(a, b)
+# Fused multiply-add (single instruction)
+fma_result = a.fma(b, c)  # a * b + c
 
-# Check your hardware capabilities
+# Reductions (multi-accumulator optimized)
+total = a.sum()
+average = a.mean()
+minimum = a.min()
+maximum = a.max()
+dot_product = a.dot(b)
+
+# Transcendental functions (SIMD vectorized)
+sqrt_a = a.sqrt()
+exp_a = a.exp()
+log_a = a.log()
+sin_a = a.sin()
+cos_a = a.cos()
+tanh_a = a.tanh()
+
+# Get hardware info
 info = flow.get_hardware_info()
-print(f"SIMD Width: {info['simd_width']*8} bits")
+print(f"SIMD Width: {info['simd_width'] * 8} bits")
 print(f"AVX-512: {info['has_avx512']}")
+print(f"Cores: {info['physical_cores']}")
+
+# Cleanup
+flow.shutdown()
 ```
 
 ### C++ API
@@ -99,246 +161,202 @@ print(f"AVX-512: {info['has_avx512']}")
 #include <bud_flow_lang/bud_flow_lang.h>
 
 int main() {
-    bud::initialize();
+    bud::RuntimeConfig config;
+    config.enable_debug_output = false;
+    bud::initialize(config);
 
-    // Create arrays with automatic SIMD alignment
-    auto a = bud::Bunch::fill(1000000, 2.0f).value();
-    auto b = bud::Bunch::fill(1000000, 3.0f).value();
+    // Create arrays
+    auto a = bud::Bunch::arange(1000000).value();
+    auto b = bud::Bunch::fill(1000000, 2.0f).value();
 
-    // JIT-compiled dot product
-    float result = a.dot(b);
+    // Operations
+    auto sum = a + b;
+    float dot = a.dot(b);
+    float total = a.sum();
 
-    // Get compilation statistics
-    auto stats = bud::getCompilationStats();
-    std::cout << "Compilations: " << stats.total_compilations << std::endl;
-    std::cout << "Compile time: " << stats.total_compile_time_us << " us" << std::endl;
+    // Get JIT statistics
+    auto stats = bud::jit::getJitStats();
+    std::cout << "Compilations: " << stats.total_compilations << "\n";
+    std::cout << "Compile time: " << stats.total_compile_time_us << " us\n";
 
     bud::shutdown();
     return 0;
 }
 ```
 
-## JIT Compiler Architecture
+## Architecture
+
+```
+bud_flow_lang/
+├── include/bud_flow_lang/       # Public C++ headers
+│   ├── bud_flow_lang.h          # Main entry point
+│   ├── bunch.h                  # Array type (Bunch)
+│   ├── ir.h                     # Intermediate representation
+│   ├── codegen/
+│   │   └── hwy_ops.h            # Highway SIMD operations
+│   ├── jit/
+│   │   ├── copy_patch_compiler.h
+│   │   └── stencil.h            # JIT stencil definitions
+│   └── memory/
+│       ├── cache_config.h       # Cache detection
+│       └── prefetch.h           # Prefetch hints
+├── src/
+│   ├── codegen/                 # Highway SIMD implementation
+│   │   ├── hwy_ops.cc           # Operation wrappers
+│   │   └── hwy_ops-inl.h        # SIMD kernels (multi-target)
+│   ├── ir/                      # IR builder & optimizer
+│   ├── jit/                     # Copy-and-patch JIT compiler
+│   ├── runtime/                 # Tiered executor, Bunch
+│   └── python/                  # Python bindings (nanobind)
+├── tests/                       # 590+ unit tests
+├── benchmarks/                  # Performance benchmarks
+└── docs/                        # Documentation
+```
+
+## JIT Compiler Details
 
 ### Copy-and-Patch Compilation
 
-Instead of generating code from scratch, we use pre-compiled **stencils** (code templates) with holes that get patched at runtime:
+Pre-compiled stencils with runtime patching:
 
-```
-Stencil Template:
-  vmovups  ymm0, [HOLE_ADDR_A]    ; Load from address A
-  vmovups  ymm1, [HOLE_ADDR_B]    ; Load from address B
-  vaddps   ymm2, ymm0, ymm1       ; SIMD add
-  vmovups  [HOLE_ADDR_OUT], ymm2  ; Store result
+```asm
+; Stencil template (compiled once)
+vmovups  ymm0, [HOLE_A]      ; Load from address A
+vmovups  ymm1, [HOLE_B]      ; Load from address B
+vaddps   ymm2, ymm0, ymm1    ; SIMD add
+vmovups  [HOLE_OUT], ymm2    ; Store result
 
-Runtime Patching:
-  - HOLE_ADDR_A   → actual pointer to array a
-  - HOLE_ADDR_B   → actual pointer to array b
-  - HOLE_ADDR_OUT → actual pointer to output
+; Runtime: patch holes with actual addresses (~100ns)
 ```
 
-**Benefits:**
-- Sub-millisecond compilation (vs 100ms+ for LLVM -O0)
-- W^X security model (allocate RW, then make RX)
-- No runtime code generation dependencies
+### Multi-Accumulator Reductions
 
-### Pre-Compiled Fused Kernels
+```cpp
+// Standard reduction (latency-bound)
+for (i = 0; i < n; i++)
+    sum += a[i];  // 4-cycle dependency chain
 
-Common patterns are pre-optimized:
+// Multi-accumulator (4x throughput)
+for (i = 0; i < n; i += 4*lanes) {
+    sum0 += a[i];
+    sum1 += a[i + lanes];
+    sum2 += a[i + 2*lanes];
+    sum3 += a[i + 3*lanes];  // Independent, pipelined
+}
+result = sum0 + sum1 + sum2 + sum3;
+```
 
-| Kernel | Description | Speedup |
-|--------|-------------|---------|
-| `FusedDotProduct` | Dot product with 4 accumulators | 2-4x |
-| `FusedSoftmax` | Numerically stable softmax | 3-5x |
-| `FusedLayerNorm` | Layer normalization | 4-6x |
-| `FusedGelu` | GELU activation | 2-3x |
-| `FusedSquaredDistance` | L2 distance | 2-3x |
+### Size-Specialized Kernels
 
-### Intermediate Representation
-
-The DSL compiles to an SSA-form IR that enables:
-
-- **Constant Folding**: Evaluate compile-time expressions
-- **Dead Code Elimination**: Remove unused computations
-- **Operation Fusion**: Merge compatible operations
-- **Peephole Optimization**: Pattern-based micro-optimizations
+| Array Size | Kernel Type | Optimization |
+|------------|-------------|--------------|
+| < 256 | Small | Fully unrolled, no loop overhead |
+| 256-4K | Medium | 4x unrolled with SIMD |
+| > 4K | Large | 8x unrolled + prefetching |
 
 ## Memory Optimization
 
 ### Cache-Aware Execution
 
-Automatic detection and optimization for your CPU's cache hierarchy:
-
 ```python
+# Detect cache configuration
 cache = flow.detect_cache_config()
-# L1: 32 KB, L2: 256 KB, L3: 16 MB, Line: 64 bytes
+print(f"L1: {cache['l1_size_kb']} KB")
+print(f"L2: {cache['l2_size_kb']} KB")
+print(f"L3: {cache['l3_size_kb']} KB")
 
-# Large arrays automatically use tiled execution
-# to maximize cache utilization
-```
-
-### Software Prefetching
-
-Intelligent prefetch insertion reduces memory stalls:
-
-```python
-# Control prefetching behavior
-flow.set_prefetch_enabled(True)
+# Enable cache optimizations
 flow.set_tiling_enabled(True)
-
-# Get optimal tile size for your operation
-tile_size = flow.optimal_tile_size(
-    element_size=4,    # float32
-    num_arrays=3       # a, b, c in FMA
-)
+flow.set_prefetch_enabled(True)
 ```
 
-## Performance
+### Dynamic Tier Thresholds
 
-### Benchmarks vs NumPy (1M elements)
+JIT compilation thresholds adapt to array size:
 
-| Operation | Bud Flow Lang | NumPy | Winner |
-|-----------|---------------|-------|--------|
-| FMA (a*b+c) | 0.48 ms | 0.67 ms | **Flow 1.4x** |
-| Element-wise Add | 0.35 ms | 0.33 ms | Tie |
-| Dot Product | 0.51 ms | 0.17 ms | NumPy* |
-| Sum Reduction | 2.15 ms | 0.18 ms | NumPy* |
+```
+Small arrays (< 256):   50 calls to JIT (amortize compile cost)
+Medium arrays (256-4K): 10 calls to JIT (standard)
+Large arrays (> 4K):    3 calls to JIT (immediate benefit)
+```
 
-*NumPy uses multi-threaded BLAS; Bud Flow Lang is currently single-threaded.
-
-### When to Use Bud Flow Lang
-
-**Use Bud Flow Lang for:**
-- Fused operations (FMA, chained arithmetic)
-- Custom SIMD kernels
-- Portable performance across architectures
-- JIT compilation without LLVM dependency
-
-**Use NumPy for:**
-- Multi-threaded BLAS operations
-- Rich ecosystem integration
-- Established workflows
-
-## Installation
-
-### From Source (Recommended)
+## Running Benchmarks
 
 ```bash
-# Clone the repository
-git clone https://github.com/BudEcosystem/Bud-Flow-Lang.git
-cd Bud-Flow-Lang
+# Quick benchmark
+cd bud_flow_lang
+source .venv/bin/activate
+python benchmarks/python/quick_bench.py
 
-# Build with Python bindings
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DBUD_BUILD_PYTHON=ON
-make -j$(nproc)
-
-# Add to Python path
-export PYTHONPATH=$PWD:$PYTHONPATH
-python -c "import bud_flow_lang_py as flow; flow.initialize(); print('Success!')"
+# Full benchmark suite
+python benchmarks/python/run_benchmarks.py --sizes 1000,100000,1000000 --runs 20
 ```
 
-### Google Colab
+## Running Tests
 
-```python
-# Install in Colab (takes ~2-3 minutes)
-!apt-get update -qq && apt-get install -qq -y cmake g++
-!git clone --depth 1 https://github.com/BudEcosystem/Bud-Flow-Lang.git
-!cd Bud-Flow-Lang && mkdir -p build && cd build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUD_BUILD_PYTHON=ON && \
-    make -j4
+```bash
+cd build
 
-import sys
-sys.path.insert(0, '/content/Bud-Flow-Lang/build')
-import bud_flow_lang_py as flow
-flow.initialize()
+# Run all tests
+./bud_tests
+
+# Run specific test suite
+./bud_tests --gtest_filter="DynamicThreshold*"
+./bud_tests --gtest_filter="OptimizedReductions*"
+
+# Run with verbose output
+./bud_tests --gtest_filter="*" --gtest_print_time=1
 ```
 
-### Build Options
+## Build Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `CMAKE_BUILD_TYPE` | Release | Build type (Debug/Release) |
 | `BUD_BUILD_PYTHON` | OFF | Build Python bindings |
 | `BUD_ENABLE_TESTS` | ON | Build test suite |
 | `BUD_ENABLE_BENCHMARKS` | ON | Build benchmarks |
-| `CMAKE_BUILD_TYPE` | Release | Build type |
+| `BUD_ENABLE_SANITIZERS` | OFF | Enable ASan/UBSan |
 
-## Project Structure
+## Requirements
 
-```
-bud_flow_lang/
-├── include/bud_flow_lang/     # Public C++ API
-│   ├── ir.h                   # SSA-form IR
-│   ├── bunch.h                # Array abstraction
-│   ├── jit/                   # JIT compiler headers
-│   │   ├── copy_patch_compiler.h
-│   │   └── stencil.h
-│   └── memory/                # Memory optimization
-│       ├── cache_config.h
-│       ├── prefetch.h
-│       └── tiled_executor.h
-├── src/
-│   ├── ir/                    # IR builder & optimizer
-│   ├── jit/                   # Copy-and-patch JIT
-│   ├── codegen/               # Highway SIMD codegen
-│   ├── runtime/               # Tiered executor
-│   └── python/                # Python bindings
-├── docs/                      # Documentation
-│   ├── tutorials/             # Step-by-step guides
-│   ├── api/                   # API reference
-│   └── notebooks/             # Jupyter notebooks
-└── examples/                  # Example programs
-```
+- **C++ Compiler**: GCC 10+, Clang 12+, or MSVC 2019+
+- **CMake**: 3.16+
+- **Python**: 3.8+ (for bindings)
+- **Dependencies**: Automatically fetched via CMake
+  - Google Highway (SIMD)
+  - nanobind (Python bindings)
+  - Google Test (testing)
+  - spdlog (logging)
 
 ## Documentation
 
-- **[Getting Started](docs/getting_started.md)** - 5-minute introduction
-- **[Installation Guide](docs/installation.md)** - Detailed setup instructions
-- **[Tutorials](docs/tutorials/)** - Step-by-step learning path
-- **[API Reference](docs/api/)** - Complete function documentation
-- **[Jupyter Notebooks](docs/notebooks/)** - Interactive examples for Colab
-
-## Development
-
-### Quality Gate
-
-```bash
-# Run full quality checks (required before commits)
-./scripts/quality-gate.sh
-
-# With auto-formatting
-./scripts/quality-gate.sh --fix
-
-# Quick mode (skip sanitizer builds)
-./scripts/quality-gate.sh --quick
-```
-
-### Pre-commit Hooks
-
-Automatically enforced on every commit:
-- Code formatting (clang-format)
-- Build verification
-- Test suite execution
-- Static analysis (clang-tidy)
-
-### Commit Message Format
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat(jit): add AVX-512 stencils for float16 operations
-fix(memory): resolve alignment issue in tiled executor
-docs: add JIT compiler architecture section to README
-perf(fusion): optimize dot product kernel with 8 accumulators
-```
+- [Getting Started](docs/getting_started.md) - 5-minute introduction
+- [Installation Guide](docs/installation.md) - Detailed setup
+- [Python API Reference](docs/python_api.md) - Python bindings
+- [Performance Guide](docs/performance_guide.md) - Optimization tips
+- [Tutorials](docs/tutorials/) - Step-by-step guides
 
 ## Roadmap
 
-- [ ] Multi-threaded parallel execution
-- [ ] GPU backend (CUDA, Metal, Vulkan)
+- [x] Copy-and-Patch JIT compiler
+- [x] Tiered compilation system
+- [x] Multi-accumulator reductions
+- [x] Size-specialized kernels
+- [x] Kernel fusion (FMA, AXPY)
+- [x] Software prefetching
+- [x] Dynamic tier thresholds
+- [ ] Multi-threaded execution
+- [ ] GPU backend (CUDA/Metal)
 - [ ] Automatic differentiation
-- [ ] Distributed execution
-- [ ] Additional fusion patterns
+- [ ] Graph-level optimization
+
+## Contributing
+
+Contributions are welcome! Please ensure:
+1. All tests pass (`./bud_tests`)
+2. Code follows the style guide (clang-format)
+3. New features have tests
 
 ## License
 
@@ -350,13 +368,8 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 **Jithin VG** - Bud Ecosystem Inc.
 
-## Contributing
-
-Contributions are welcome! Please ensure all quality checks pass before submitting a pull request.
-
 ## Links
 
-- [Documentation](docs/index.md)
 - [GitHub Repository](https://github.com/BudEcosystem/Bud-Flow-Lang)
 - [Issue Tracker](https://github.com/BudEcosystem/Bud-Flow-Lang/issues)
 - [Bud Ecosystem](https://budecosystem.com)

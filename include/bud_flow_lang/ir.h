@@ -274,6 +274,7 @@ class IRBuilder {
     ValueId le(ValueId lhs, ValueId rhs);
     ValueId gt(ValueId lhs, ValueId rhs);
     ValueId ge(ValueId lhs, ValueId rhs);
+    ValueId ne(ValueId lhs, ValueId rhs);
 
     // Select (ternary)
     ValueId select(ValueId mask, ValueId true_val, ValueId false_val);
