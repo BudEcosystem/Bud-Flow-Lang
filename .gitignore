@@ -63,7 +63,9 @@ dist/
 *.egg
 .Python
 venv/
+.venv/
 ENV/
+.pytest_cache/
 
 # Package files
 *.tar.gz
@@ -94,3 +96,4 @@ credentials.json
 secrets.json
 build_asan/
 build_coverage/
+build_release/
