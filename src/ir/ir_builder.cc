@@ -8,6 +8,9 @@
 #include "bud_flow_lang/ir/sibling_fusion.h"
 
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
+
+#include <unordered_set>
 
 namespace bud {
 namespace ir {
@@ -123,8 +126,41 @@ ValueId IRBuilder::constant(int64_t value) {
 ValueId IRBuilder::constantVector(const std::vector<float>& values) {
     TypeDesc type(ScalarType::kFloat32, Shape::vector(values.size()));
     ValueId id = createNode(OpCode::kConstantVector, type);
-    // Store values as attribute (serialized)
-    // TODO: Better storage for large vectors
+    if (!id.isValid()) {
+        return ValueId::invalid();
+    }
+
+    auto* node = getNode(id);
+    if (!node) {
+        return ValueId::invalid();
+    }
+
+    // Store values as comma-separated string (simple serialization)
+    std::string values_str;
+    values_str.reserve(values.size() * 12);  // Estimate ~12 chars per float
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0)
+            values_str += ",";
+        values_str += std::to_string(values[i]);
+    }
+    node->setStringAttr("values", std::move(values_str));
+    node->setIntAttr("count", static_cast<int64_t>(values.size()));
+    return id;
+}
+
+// Kernel parameters (JAX-style input bindings)
+ValueId IRBuilder::parameter(size_t index, TypeDesc type) {
+    ValueId id = createNode(OpCode::kParameter, type);
+    if (!id.isValid()) {
+        return ValueId::invalid();
+    }
+
+    auto* node = getNode(id);
+    if (!node) {
+        return ValueId::invalid();
+    }
+
+    node->setIntAttr("param_index", static_cast<int64_t>(index));
     return id;
 }
 
@@ -368,6 +404,9 @@ size_t IRBuilder::replaceAllUses(ValueId old_id, ValueId new_id) {
         return 0;
     }
 
+    // Track this replacement for later output_ updating
+    replacement_map_[old_id.id] = new_id.id;
+
     size_t replacement_count = 0;
 
     // Iterate through all nodes and replace operands
@@ -386,6 +425,46 @@ size_t IRBuilder::replaceAllUses(ValueId old_id, ValueId new_id) {
     }
 
     return replacement_count;
+}
+
+ValueId IRBuilder::getFinalReplacement(ValueId id) const {
+    if (!id.isValid()) {
+        return id;
+    }
+
+    // Follow the replacement chain until we find a value that wasn't replaced
+    ValueId current = id;
+    constexpr size_t max_chain = 100;  // Prevent infinite loops
+    size_t steps = 0;
+    std::unordered_set<uint32_t> seen;  // Cycle detection
+
+    while (steps < max_chain) {
+        // Check for cycles
+        if (seen.count(current.id)) {
+            spdlog::warn("Replacement chain cycle detected at %{} (starting from %{})", current.id,
+                         id.id);
+            break;  // Cycle found, use current value
+        }
+        seen.insert(current.id);
+
+        auto it = replacement_map_.find(current.id);
+        if (it == replacement_map_.end()) {
+            // No replacement found, this is the final value
+            break;
+        }
+        current = ValueId{it->second};
+        ++steps;
+    }
+
+    if (steps >= max_chain) {
+        spdlog::warn("Replacement chain exceeded {} steps for %{}", max_chain, id.id);
+    }
+
+    return current;
+}
+
+void IRBuilder::clearReplacementTracking() {
+    replacement_map_.clear();
 }
 
 void IRBuilder::markDead(ValueId id) {
@@ -416,9 +495,9 @@ bool IRBuilder::markDeadIfUnused(ValueId id) {
     return false;
 }
 
-size_t IRBuilder::compactNodes() {
+size_t IRBuilder::compactNodesWithMapping(std::vector<ValueId>& id_map_out) {
     // Build mapping from old IDs to new IDs
-    std::vector<ValueId> id_map(nodes_.size(), ValueId::invalid());
+    id_map_out.assign(nodes_.size(), ValueId::invalid());
     std::vector<IRNode*> new_nodes;
     new_nodes.reserve(nodes_.size());
 
@@ -426,7 +505,7 @@ size_t IRBuilder::compactNodes() {
     for (size_t old_idx = 0; old_idx < nodes_.size(); ++old_idx) {
         IRNode* node = nodes_[old_idx];
         if (node && !node->isDead()) {
-            id_map[old_idx] = ValueId{new_id};
+            id_map_out[old_idx] = ValueId{new_id};
             node->setId(ValueId{new_id});
             new_nodes.push_back(node);
             ++new_id;
@@ -439,8 +518,8 @@ size_t IRBuilder::compactNodes() {
     for (auto* node : new_nodes) {
         for (size_t i = 0; i < node->numOperands(); ++i) {
             ValueId old_operand = node->operand(i);
-            if (old_operand.id < id_map.size() && id_map[old_operand.id].isValid()) {
-                node->setOperand(i, id_map[old_operand.id]);
+            if (old_operand.id < id_map_out.size() && id_map_out[old_operand.id].isValid()) {
+                node->setOperand(i, id_map_out[old_operand.id]);
             }
         }
     }
@@ -450,6 +529,11 @@ size_t IRBuilder::compactNodes() {
     next_id_ = new_id;
 
     return removed_count;
+}
+
+size_t IRBuilder::compactNodes() {
+    std::vector<ValueId> id_map;
+    return compactNodesWithMapping(id_map);
 }
 
 bool IRBuilder::hasUses(ValueId id) const {
@@ -642,6 +726,9 @@ Result<void> IRModule::optimize(int level) {
 
     // Level 2+: Standard optimizations (fusion)
     if (level >= 2) {
+        // Clear replacement tracking before fusion passes
+        builder_.clearReplacementTracking();
+
         // Use cost model-based fusion pass (producer-consumer fusion)
         FusionCostModel cost_model;
         PriorityFusionPass fusion_pass(cost_model);
@@ -655,8 +742,33 @@ Result<void> IRModule::optimize(int level) {
         HorizontalFusionPass horizontal_pass;
         horizontal_pass.run(builder_);
 
+        // Before compaction, follow the replacement chain for output_
+        // This handles cases where the output node was replaced (e.g., Add -> FMA)
+        if (output_.isValid()) {
+            ValueId replaced_output = builder_.getFinalReplacement(output_);
+            if (replaced_output.isValid() && replaced_output != output_) {
+                spdlog::debug("Output ID updated from %{} to %{} after fusion", output_.id,
+                              replaced_output.id);
+                output_ = replaced_output;
+            } else if (!replaced_output.isValid()) {
+                // Replacement chain led to invalid ID - keep original and log error
+                spdlog::error("Output ID %{} replacement chain led to invalid ID, keeping original",
+                              output_.id);
+            }
+        }
+
         // Compact nodes to remove dead code from fusion
-        builder_.compactNodes();
+        // Use version that returns mapping so we can update output_
+        std::vector<ValueId> id_map;
+        builder_.compactNodesWithMapping(id_map);
+
+        // Update output_ if it was remapped during compaction
+        if (output_.isValid() && output_.id < id_map.size()) {
+            ValueId new_output = id_map[output_.id];
+            if (new_output.isValid()) {
+                output_ = new_output;
+            }
+        }
     }
 
     // Level 3: Aggressive optimizations

@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace bud {
@@ -37,6 +38,9 @@ enum class OpCode : uint16_t {
     // Constants
     kConstantScalar = 0,
     kConstantVector,
+
+    // Kernel parameters (JAX-style input binding)
+    kParameter,  // Kernel input parameter - substituted at runtime
 
     // Memory
     kLoad,
@@ -72,6 +76,12 @@ enum class OpCode : uint16_t {
     kTan,
     kTanh,
     kSigmoid,
+
+    // Rounding operations
+    kCeil,
+    kFloor,
+    kRound,
+    kTrunc,
 
     // Comparison
     kEq,
@@ -117,11 +127,26 @@ enum class OpCode : uint16_t {
     kConcat,
     kSlice,
 
+    // Advanced vector operations (Highway intrinsics)
+    kReverse,           // Reverse lanes
+    kInterleaveLo,      // Interleave lower halves
+    kInterleaveHi,      // Interleave upper halves
+    kTableLookup,       // Table lookup by indices
+    kRotateLeft,        // Rotate lanes left
+    kRotateRight,       // Rotate lanes right
+    kConcatLowerLower,  // Concat lower halves
+    kConcatUpperUpper,  // Concat upper halves
+
     // Type conversions
     kCast,
     kBitcast,
     kPromote,
     kDemote,
+    kConvertF32ToI32,  // Float to int
+    kConvertI32ToF32,  // Int to float
+    kDemoteF64ToF32,   // Double to float
+    kPromoteF32ToF64,  // Float to double
+    kReinterpretBits,  // Bitcast with different size
 
     // Control flow (for loops)
     kFor,
@@ -129,9 +154,25 @@ enum class OpCode : uint16_t {
     kWhile,
 
     // Masking
-    kSelect,    // mask ? a : b
-    kCompress,  // extract elements where mask is true
-    kExpand,    // scatter elements to positions where mask is true
+    kSelect,      // mask ? a : b
+    kCompress,    // extract elements where mask is true
+    kExpand,      // scatter elements to positions where mask is true
+    kIfThenElse,  // Vector conditional: mask ? a : b
+    kZeroIfNeg,   // Zero out negative elements
+
+    // Mask operations
+    kCountTrue,      // Population count of mask
+    kFindFirstTrue,  // Index of first set bit
+    kFindLastTrue,   // Index of last set bit
+    kAllTrue,        // Check if all mask bits are true
+    kAnyTrue,        // Check if any mask bits are true
+
+    // Advanced math
+    kHypot,     // sqrt(x² + y²)
+    kAtan2,     // atan2(y, x)
+    kCopySign,  // Copy sign from y to x
+    kFrexp,     // Extract mantissa and exponent
+    kLdexp,     // Multiply by power of 2
 
     // Special
     kPhi,  // SSA phi node
@@ -239,6 +280,9 @@ class IRBuilder {
     ValueId constant(int64_t value);
     ValueId constantVector(const std::vector<float>& values);
 
+    // Create kernel parameters (JAX-style input bindings)
+    ValueId parameter(size_t index, TypeDesc type);
+
     // Binary operations
     ValueId add(ValueId lhs, ValueId rhs);
     ValueId sub(ValueId lhs, ValueId rhs);
@@ -317,6 +361,10 @@ class IRBuilder {
     // Returns the number of nodes removed
     size_t compactNodes();
 
+    // Same as compactNodes, but also returns the ID mapping
+    // The returned vector maps old_id -> new_id
+    size_t compactNodesWithMapping(std::vector<ValueId>& id_map_out);
+
     // Check if a value is used by any live node
     [[nodiscard]] bool hasUses(ValueId id) const;
 
@@ -325,6 +373,12 @@ class IRBuilder {
 
     // Find all nodes that use a given value
     [[nodiscard]] std::vector<ValueId> findUses(ValueId id) const;
+
+    // Get the final replacement for a value (follows replacement chain)
+    [[nodiscard]] ValueId getFinalReplacement(ValueId id) const;
+
+    // Clear all replacement tracking (call before a new optimization pass)
+    void clearReplacementTracking();
 
     // Replace a node with a new operation (for peephole optimization)
     // The replacement node reuses the same ID
@@ -347,6 +401,9 @@ class IRBuilder {
     Arena& arena_;
     std::vector<IRNode*> nodes_;
     uint32_t next_id_ = 0;
+
+    // Track replacements from replaceAllUses (old_id -> new_id)
+    std::unordered_map<uint32_t, uint32_t> replacement_map_;
 };
 
 // =============================================================================

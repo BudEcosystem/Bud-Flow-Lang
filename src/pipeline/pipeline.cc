@@ -359,14 +359,212 @@ Result<Bunch> Pipeline::executeUnfused(const Bunch& input) const {
 }
 
 Result<Bunch> Pipeline::executeFused(const Bunch& input) const {
-    // For now, use unfused execution
-    // TODO: Implement true fusion via IR compilation and JIT
-    return executeUnfused(input);
+    // Build IR graph from pipeline stages
+    Arena arena;
+    ir::IRBuilder builder(arena);
+
+    const size_t count = input.size();
+
+    // Create parameter node for input (index 0)
+    TypeDesc input_type(ScalarType::kFloat32, Shape::vector(count));
+    ir::ValueId current = builder.parameter(0, input_type);
+
+    // Build IR for each stage
+    for (const auto& stage : stages_) {
+        ir::ValueId next = ir::ValueId::invalid();
+
+        switch (stage.op_code) {
+        // Unary operations
+        case ir::OpCode::kAbs:
+            next = builder.abs(current);
+            break;
+        case ir::OpCode::kNeg:
+            next = builder.neg(current);
+            break;
+        case ir::OpCode::kSqrt:
+            next = builder.sqrt(current);
+            break;
+        case ir::OpCode::kRsqrt:
+            next = builder.rsqrt(current);
+            break;
+        case ir::OpCode::kExp:
+            next = builder.exp(current);
+            break;
+        case ir::OpCode::kLog:
+            next = builder.log(current);
+            break;
+        case ir::OpCode::kSin:
+            next = builder.sin(current);
+            break;
+        case ir::OpCode::kCos:
+            next = builder.cos(current);
+            break;
+        case ir::OpCode::kTanh:
+            next = builder.tanh(current);
+            break;
+
+        // Binary operations with scalar
+        case ir::OpCode::kAdd: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.add(current, scalar);
+            break;
+        }
+        case ir::OpCode::kSub: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.sub(current, scalar);
+            break;
+        }
+        case ir::OpCode::kMul: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.mul(current, scalar);
+            break;
+        }
+        case ir::OpCode::kDiv: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.div(current, scalar);
+            break;
+        }
+        case ir::OpCode::kMin: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.min(current, scalar);
+            break;
+        }
+        case ir::OpCode::kMax: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.max(current, scalar);
+            break;
+        }
+
+        default:
+            // Fallback to unfused for unsupported ops
+            return executeUnfused(input);
+        }
+
+        if (!next.isValid()) {
+            return Error(ErrorCode::kInternalError, "Failed to build IR node");
+        }
+        current = next;
+    }
+
+    // Allocate output buffer
+    auto output = Bunch::zeros(count, ScalarType::kFloat32);
+    if (!output) {
+        return Error(ErrorCode::kAllocationFailed, "Failed to allocate output buffer");
+    }
+
+    // Execute the IR graph
+    std::vector<std::pair<ir::ValueId, void*>> inputs = {
+        {ir::ValueId{0}, const_cast<void*>(input.data())}};
+    std::vector<std::pair<ir::ValueId, size_t>> input_sizes = {{ir::ValueId{0}, count}};
+    std::vector<std::pair<ir::ValueId, ScalarType>> input_types = {
+        {ir::ValueId{0}, ScalarType::kFloat32}};
+
+    auto result = ir::executeIR(builder, current, output->mutableData(), count,
+                                ScalarType::kFloat32, inputs, input_sizes, input_types);
+
+    if (!result) {
+        return Error(result.error().code(), std::string(result.error().message()));
+    }
+
+    return output;
 }
 
 Result<std::unique_ptr<ir::IRModule>> Pipeline::compile() const {
-    // TODO: Implement IR compilation for fused execution
-    return Error(ErrorCode::kNotImplemented, "Pipeline IR compilation not yet implemented");
+    if (stages_.empty()) {
+        return Error(ErrorCode::kInvalidInput, "Cannot compile empty pipeline");
+    }
+
+    // Create a new IR module for this pipeline
+    auto module = std::make_unique<ir::IRModule>("pipeline");
+    auto& builder = module->builder();
+
+    // Create parameter node for input (index 0)
+    // Use a placeholder size of 1 - actual size is substituted at runtime
+    TypeDesc input_type(ScalarType::kFloat32, Shape::vector(1));
+    ir::ValueId current = builder.parameter(0, input_type);
+
+    // Build IR for each stage
+    for (const auto& stage : stages_) {
+        ir::ValueId next = ir::ValueId::invalid();
+
+        switch (stage.op_code) {
+        // Unary operations
+        case ir::OpCode::kAbs:
+            next = builder.abs(current);
+            break;
+        case ir::OpCode::kNeg:
+            next = builder.neg(current);
+            break;
+        case ir::OpCode::kSqrt:
+            next = builder.sqrt(current);
+            break;
+        case ir::OpCode::kRsqrt:
+            next = builder.rsqrt(current);
+            break;
+        case ir::OpCode::kExp:
+            next = builder.exp(current);
+            break;
+        case ir::OpCode::kLog:
+            next = builder.log(current);
+            break;
+        case ir::OpCode::kSin:
+            next = builder.sin(current);
+            break;
+        case ir::OpCode::kCos:
+            next = builder.cos(current);
+            break;
+        case ir::OpCode::kTanh:
+            next = builder.tanh(current);
+            break;
+
+        // Binary operations with scalar
+        case ir::OpCode::kAdd: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.add(current, scalar);
+            break;
+        }
+        case ir::OpCode::kSub: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.sub(current, scalar);
+            break;
+        }
+        case ir::OpCode::kMul: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.mul(current, scalar);
+            break;
+        }
+        case ir::OpCode::kDiv: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.div(current, scalar);
+            break;
+        }
+        case ir::OpCode::kMin: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.min(current, scalar);
+            break;
+        }
+        case ir::OpCode::kMax: {
+            ir::ValueId scalar = builder.constant(stage.scalar_param);
+            next = builder.max(current, scalar);
+            break;
+        }
+
+        default:
+            return Error(ErrorCode::kNotImplemented,
+                         "Unsupported operation in pipeline: " + std::string(stage.name));
+        }
+
+        if (!next.isValid()) {
+            return Error(ErrorCode::kInternalError,
+                         "Failed to build IR node for: " + std::string(stage.name));
+        }
+        current = next;
+    }
+
+    // Set the output of the module
+    module->setOutput(current);
+
+    return module;
 }
 
 std::string Pipeline::toString() const {

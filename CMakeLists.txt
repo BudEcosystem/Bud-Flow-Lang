@@ -279,6 +279,8 @@ set(BUD_CORE_SOURCES
     src/jit/persistent_cache.cc
     src/jit/pgo_specializer.cc
     src/jit/code_layout.cc
+    src/jit/adaptive_kernel_cache.cc
+    src/jit/adaptive_executor.cc
     # Scheduler
     src/scheduler/schedule.cc
     src/scheduler/compute_dag.cc
@@ -286,6 +288,7 @@ set(BUD_CORE_SOURCES
     src/scheduler/cost_model.cc
     src/scheduler/evolutionary_search.cc
     src/scheduler/auto_scheduler.cc
+    src/scheduler/continuous_tuner.cc
     src/runtime/bunch.cc
     src/runtime/executor.cc
     src/runtime/memory_pool.cc
@@ -300,6 +303,7 @@ set(BUD_CORE_SOURCES
     # Developer tier abstractions
     src/pattern/pattern.cc
     src/pipeline/pipeline.cc
+    src/stream/stream.cc
     # Expert tier Highway types
     src/highway/highway_types.cc
 )
@@ -353,6 +357,8 @@ if(BUD_BUILD_PYTHON)
         src/python/pattern_bindings.cc
         src/python/pipeline_bindings.cc
         src/python/memory_bindings.cc
+        src/python/stream_bindings.cc
+        src/python/continuous_tuner_bindings.cc
     )
     target_link_libraries(bud_flow_lang_py PRIVATE bud_flow_core)
     target_include_directories(bud_flow_lang_py PRIVATE ${CMAKE_SOURCE_DIR}/src/python)
@@ -389,6 +395,7 @@ if(BUD_BUILD_TESTS)
         tests/jit/persistent_cache_test.cc
         tests/jit/pgo_specializer_test.cc
         tests/jit/code_layout_test.cc
+        tests/jit/adaptive_executor_test.cc
         tests/scheduler/schedule_test.cc
         tests/scheduler/compute_dag_test.cc
         tests/scheduler/search_space_test.cc

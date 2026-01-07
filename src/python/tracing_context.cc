@@ -54,20 +54,20 @@ Bunch TracingContext::createTracerInput(size_t param_index, ScalarType dtype, co
         count *= shape[i];
     }
 
-    // Create a constant vector node as a placeholder for the input
-    // The actual data will be provided at execution time
-    // For tracing, we need a ValueId to track operations
+    // Create a parameter node to represent the input (JAX-style input binding)
+    // Parameters are substituted with actual input data at execution time
+    TypeDesc type(dtype, shape);
+    ir::ValueId input_id = module_->builder().parameter(param_index, type);
 
-    // Create a load node to represent reading from input parameter
-    // We use constantVector with zeros as a placeholder that will be
-    // replaced with actual input data at execution time
-    std::vector<float> placeholder(count, 0.0f);
-    ir::ValueId input_id = module_->builder().constantVector(placeholder);
+    if (!input_id.isValid()) {
+        spdlog::error("Failed to create parameter node for input {}", param_index);
+        return Bunch();
+    }
 
     // Store the input ID for later mapping
     input_ids_.push_back(input_id);
 
-    spdlog::debug("Created tracer input {} (param {}): {} elements, dtype {}", input_id.id,
+    spdlog::debug("Created parameter input {} (param {}): {} elements, dtype {}", input_id.id,
                   param_index, count, scalarTypeName(dtype));
 
     // Create a Bunch that references this IR value

@@ -4,6 +4,7 @@
 
 #include "bud_flow_lang/bunch.h"
 
+#include "bud_flow_lang/bud_flow_lang.h"  // For executeBinaryOp
 #include "bud_flow_lang/codegen/hwy_ops.h"
 #include "bud_flow_lang/ir.h"
 #include "bud_flow_lang/memory/cache_config.h"
@@ -481,10 +482,12 @@ Bunch Bunch::operator+(const Bunch& other) const {
         return *this;
     }
 
-    auto dispatch_result =
-        simd::DispatchAdd(result->mutableData(), data(), other.data(), size(), dtype());
-    if (!dispatch_result) {
-        spdlog::error("Bunch::operator+ dispatch failed: {}", dispatch_result.error().toString());
+    // Route through TieredExecutor for adaptive optimization
+    auto exec_result = executeBinaryOp(ir::OpCode::kAdd, dtype(), result->mutableData(), data(),
+                                       other.data(), size());
+    if (!exec_result) {
+        spdlog::error("Bunch::operator+ tiered execution failed: {}",
+                      exec_result.error().toString());
         return *this;
     }
 
@@ -513,10 +516,11 @@ Bunch Bunch::operator-(const Bunch& other) const {
     if (!result)
         return *this;
 
-    auto dispatch_result =
-        simd::DispatchSub(result->mutableData(), data(), other.data(), size(), dtype());
-    if (!dispatch_result) {
-        spdlog::error("Bunch::operator- dispatch failed");
+    // Route through TieredExecutor for adaptive optimization
+    auto exec_result = executeBinaryOp(ir::OpCode::kSub, dtype(), result->mutableData(), data(),
+                                       other.data(), size());
+    if (!exec_result) {
+        spdlog::error("Bunch::operator- tiered execution failed");
         return *this;
     }
 
@@ -545,10 +549,11 @@ Bunch Bunch::operator*(const Bunch& other) const {
     if (!result)
         return *this;
 
-    auto dispatch_result =
-        simd::DispatchMul(result->mutableData(), data(), other.data(), size(), dtype());
-    if (!dispatch_result) {
-        spdlog::error("Bunch::operator* dispatch failed");
+    // Route through TieredExecutor for adaptive optimization
+    auto exec_result = executeBinaryOp(ir::OpCode::kMul, dtype(), result->mutableData(), data(),
+                                       other.data(), size());
+    if (!exec_result) {
+        spdlog::error("Bunch::operator* tiered execution failed");
         return *this;
     }
 
@@ -577,10 +582,11 @@ Bunch Bunch::operator/(const Bunch& other) const {
     if (!result)
         return *this;
 
-    auto dispatch_result =
-        simd::DispatchDiv(result->mutableData(), data(), other.data(), size(), dtype());
-    if (!dispatch_result) {
-        spdlog::error("Bunch::operator/ dispatch failed");
+    // Route through TieredExecutor for adaptive optimization
+    auto exec_result = executeBinaryOp(ir::OpCode::kDiv, dtype(), result->mutableData(), data(),
+                                       other.data(), size());
+    if (!exec_result) {
+        spdlog::error("Bunch::operator/ tiered execution failed");
         return *this;
     }
 
@@ -1077,21 +1083,11 @@ float Bunch::dot(const Bunch& other) const {
         return std::numeric_limits<float>::quiet_NaN();
     }
 
-    // Use TiledExecutor for large arrays (cache-optimized)
-    if (size() >= kTilingThreshold) {
-        memory::CacheConfig cache_config = memory::CacheConfig::detect();
-        memory::TiledExecutor tiled_executor(cache_config);
-        float result = tiled_executor.dotProduct(a, b, size());
-        spdlog::debug("Bunch::dot() used tiled execution for {} elements", size());
-        return result;
-    }
-
-    // Scalar fallback for small arrays
-    float total = 0.0f;
-    for (size_t i = 0; i < size(); ++i) {
-        total += a[i] * b[i];
-    }
-    return total;
+    // Use optimized SIMD Dot with adaptive accumulator count:
+    // - Small arrays (<64): single accumulator
+    // - Medium arrays (64-4096): 4 accumulators
+    // - Large arrays (>4096): 8 accumulators + prefetching
+    return simd::Dot(a, b, size());
 }
 
 // Comparisons (produce float masks: 0.0f for false, 1.0f for true) - using SIMD dispatch

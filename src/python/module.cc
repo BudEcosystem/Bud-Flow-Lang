@@ -29,6 +29,8 @@ void bind_highway(nb::module_& m);
 void bind_pattern(nb::module_& m);
 void bind_pipeline(nb::module_& m);
 void bind_memory(nb::module_& m);
+void bind_stream(nb::module_& m);
+void bind_continuous_tuner(nb::module_& m);
 
 NB_MODULE(bud_flow_lang_py, m) {
     m.doc() = "Bud Flow Lang - High-performance SIMD array library for Python";
@@ -44,6 +46,8 @@ NB_MODULE(bud_flow_lang_py, m) {
     bind_pattern(m);
     bind_pipeline(m);
     bind_memory(m);
+    bind_stream(m);
+    bind_continuous_tuner(m);
 
     // Initialize/shutdown
     m.def(

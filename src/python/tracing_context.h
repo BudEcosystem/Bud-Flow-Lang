@@ -74,6 +74,9 @@ class TracingContext {
     // Get all input parameter ValueIds in order
     [[nodiscard]] const std::vector<ir::ValueId>& inputIds() const { return input_ids_; }
 
+    // Release ownership of the IR module (for transferring to CompiledKernel)
+    [[nodiscard]] std::unique_ptr<ir::IRModule> releaseModule() { return std::move(module_); }
+
     // =========================================================================
     // Thread-Local Context Management
     // =========================================================================

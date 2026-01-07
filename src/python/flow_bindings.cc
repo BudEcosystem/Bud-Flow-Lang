@@ -16,6 +16,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cmath>
+#include <iostream>
 #include <optional>
 
 #include "tracing_context.h"
@@ -200,6 +201,11 @@ class KernelDecorator {
             return func_(*args, **kwargs);
         }
 
+        // Set output on module so optimization can update it if needed
+        ctx.module().setOutput(output_id);
+        std::cerr << "[DEBUG] Before optimization: output_id=" << output_id.id
+                  << ", nodes=" << ctx.module().builder().nodes().size() << std::endl;
+
         // Run optimization pipeline
         if (options_.enable_fusion) {
             auto opt_result = bud::runOptimizationPipeline(ctx.module(), options_.opt_level);
@@ -208,10 +214,15 @@ class KernelDecorator {
             }
         }
 
-        // Create compiled kernel
+        // Get potentially updated output ID (may change during optimization)
+        bud::ir::ValueId final_output_id = ctx.module().output();
+        std::cerr << "[DEBUG] After optimization: final_output_id=" << final_output_id.id
+                  << ", nodes=" << ctx.module().builder().nodes().size() << std::endl;
+        spdlog::debug("KernelDecorator: final output ID is {}", final_output_id.id);
+
+        // Create compiled kernel (properly transfer module ownership)
         auto compiled = std::make_unique<bud::CompiledKernel>(
-            std::make_unique<bud::ir::IRModule>(std::move(ctx.module())), output_id,
-            std::vector<bud::ir::ValueId>(ctx.inputIds()));
+            ctx.releaseModule(), final_output_id, std::vector<bud::ir::ValueId>(ctx.inputIds()));
 
         // Execute the compiled kernel
         auto exec_result = compiled->execute(bunch_inputs);

@@ -317,6 +317,52 @@ Result<void> executeFusedPattern(const std::string& pattern, void* output,
 Result<void> executeWithFusion(ir::IRModule& module);
 
 // =============================================================================
+// Adaptive Execution API
+// =============================================================================
+// Thompson Sampling-based adaptive JIT optimization
+// Learns optimal tier selection and specializations from runtime profiling
+// Supports profile persistence for warm-start optimization across sessions
+
+/// Statistics for adaptive execution
+struct AdaptiveExecutorStats {
+    uint64_t total_executions = 0;
+    uint64_t tier0_executions = 0;      // Interpreter
+    uint64_t tier1_executions = 0;      // CopyPatch JIT
+    uint64_t tier2_executions = 0;      // FusedKernel
+    uint64_t fast_path_executions = 0;  // Small arrays bypassing adaptive overhead
+
+    uint64_t promotions_performed = 0;
+    uint64_t specializations_performed = 0;
+    float avg_execution_time_ns = 0.0f;
+
+    size_t total_contexts = 0;  // Number of cached kernel contexts
+    size_t total_versions = 0;  // Number of cached kernel versions
+};
+
+/// Enable/disable adaptive execution with Thompson Sampling
+/// When enabled, uses Bayesian multi-armed bandit for tier selection
+/// instead of static call-count thresholds
+void setAdaptiveExecutionEnabled(bool enabled);
+bool isAdaptiveExecutionEnabled();
+
+/// Set/get small array threshold for fast path optimization
+/// Arrays smaller than this threshold bypass adaptive overhead (Thompson Sampling,
+/// timing, context lookup) and use direct Highway dispatch. Default: 10000 elements.
+/// Set to 0 to disable fast path (always use adaptive for all sizes).
+void setSmallArrayThreshold(size_t threshold);
+size_t getSmallArrayThreshold();
+
+/// Get adaptive execution statistics
+AdaptiveExecutorStats getAdaptiveExecutorStats();
+
+/// Save adaptive profiles to disk for warm-start optimization
+/// Profiles are saved to ~/.bud_flow/profiles/<hardware_id>.dat
+bool saveAdaptiveProfiles();
+
+/// Load adaptive profiles from disk
+bool loadAdaptiveProfiles();
+
+// =============================================================================
 // Memory Optimization API
 // =============================================================================
 

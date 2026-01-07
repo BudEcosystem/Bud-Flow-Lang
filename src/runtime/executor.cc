@@ -27,6 +27,7 @@
 #include "bud_flow_lang/bud_flow_lang.h"
 #include "bud_flow_lang/codegen/fused_kernel.h"
 #include "bud_flow_lang/ir.h"
+#include "bud_flow_lang/jit/adaptive_executor.h"
 #include "bud_flow_lang/jit/stencil.h"
 #include "bud_flow_lang/memory/cache_config.h"
 #include "bud_flow_lang/memory/prefetch.h"
@@ -507,6 +508,18 @@ class TieredExecutor {
     // Execute a binary operation using the appropriate tier
     Result<void> executeBinaryOp(ir::OpCode op, ScalarType dtype, void* output, const void* input_a,
                                  const void* input_b, size_t count) {
+        // If adaptive mode is enabled, use AdaptiveExecutor with Thompson Sampling
+        if (adaptive_enabled_ && adaptive_executor_) {
+            auto result =
+                adaptive_executor_->executeBinaryOp(op, dtype, output, input_a, input_b, count);
+            if (result.success) {
+                return {};
+            } else {
+                return Error(ErrorCode::kRuntimeError, result.error_message);
+            }
+        }
+
+        // Fallback: Use static threshold-based tier promotion
         // Generate a key for this operation signature
         uint64_t key = operationKey(op, dtype, count);
 
@@ -533,6 +546,17 @@ class TieredExecutor {
     // Execute a unary operation
     Result<void> executeUnaryOp(ir::OpCode op, ScalarType dtype, void* output, const void* input,
                                 size_t count) {
+        // If adaptive mode is enabled, use AdaptiveExecutor with Thompson Sampling
+        if (adaptive_enabled_ && adaptive_executor_) {
+            auto result = adaptive_executor_->executeUnaryOp(op, dtype, output, input, count);
+            if (result.success) {
+                return {};
+            } else {
+                return Error(ErrorCode::kRuntimeError, result.error_message);
+            }
+        }
+
+        // Fallback: Use static threshold-based tier promotion
         uint64_t key = operationKey(op, dtype, count);
         ExecutionTier tier = call_counter_.getAndIncrement(key);
 
@@ -551,6 +575,18 @@ class TieredExecutor {
     // Execute FMA operation
     Result<void> executeFmaOp(ScalarType dtype, void* output, const void* input_a,
                               const void* input_b, const void* input_c, size_t count) {
+        // If adaptive mode is enabled, use AdaptiveExecutor with Thompson Sampling
+        if (adaptive_enabled_ && adaptive_executor_) {
+            auto result =
+                adaptive_executor_->executeFmaOp(dtype, output, input_a, input_b, input_c, count);
+            if (result.success) {
+                return {};
+            } else {
+                return Error(ErrorCode::kRuntimeError, result.error_message);
+            }
+        }
+
+        // Fallback: Use static threshold-based tier promotion
         uint64_t key = operationKey(ir::OpCode::kFma, dtype, count);
         ExecutionTier tier = call_counter_.getAndIncrement(key);
 
@@ -619,7 +655,37 @@ class TieredExecutor {
     CallCounter::Stats getStats() const { return call_counter_.getStats(); }
 
     // Reset call counters
-    void reset() { call_counter_.reset(); }
+    void reset() {
+        call_counter_.reset();
+        if (adaptive_executor_) {
+            adaptive_executor_->reset();
+        }
+    }
+
+    // ==========================================================================
+    // Adaptive Execution Mode
+    // ==========================================================================
+
+    /// Enable adaptive execution with Thompson Sampling
+    void setAdaptiveEnabled(bool enabled) {
+        if (enabled && !adaptive_executor_) {
+            // Create adaptive executor on first enable
+            jit::AdaptiveExecutorConfig config;
+            config.enable_persistence = true;
+            config.verbose = false;
+            adaptive_executor_ = std::make_unique<jit::AdaptiveExecutor>(config);
+            spdlog::info("Adaptive execution enabled with Thompson Sampling");
+        }
+        adaptive_enabled_ = enabled;
+    }
+
+    [[nodiscard]] bool isAdaptiveEnabled() const { return adaptive_enabled_; }
+
+    /// Get the adaptive executor (for statistics, etc.)
+    [[nodiscard]] jit::AdaptiveExecutor* adaptiveExecutor() { return adaptive_executor_.get(); }
+    [[nodiscard]] const jit::AdaptiveExecutor* adaptiveExecutor() const {
+        return adaptive_executor_.get();
+    }
 
   private:
     // Generate a unique key for an operation signature
@@ -693,6 +759,10 @@ class TieredExecutor {
     }
 
     CallCounter call_counter_;
+
+    // Adaptive execution with Thompson Sampling
+    std::unique_ptr<jit::AdaptiveExecutor> adaptive_executor_;
+    bool adaptive_enabled_ = false;
 };
 
 // =============================================================================
@@ -924,6 +994,68 @@ TieredStats getTieredStats() {
         stats.tier2_entries = counter_stats.tier2_entries;
     }
     return stats;
+}
+
+// =============================================================================
+// Adaptive Execution Public API
+// =============================================================================
+
+void setAdaptiveExecutionEnabled(bool enabled) {
+    if (!g_executor) {
+        spdlog::warn("Cannot enable adaptive execution: runtime not initialized");
+        return;
+    }
+    g_executor->setAdaptiveEnabled(enabled);
+}
+
+bool isAdaptiveExecutionEnabled() {
+    return g_executor && g_executor->isAdaptiveEnabled();
+}
+
+AdaptiveExecutorStats getAdaptiveExecutorStats() {
+    AdaptiveExecutorStats stats;
+    if (g_executor && g_executor->adaptiveExecutor()) {
+        auto executor_stats = g_executor->adaptiveExecutor()->statistics();
+        stats.total_executions = executor_stats.total_executions;
+        stats.tier0_executions = executor_stats.tier0_executions;
+        stats.tier1_executions = executor_stats.tier1_executions;
+        stats.tier2_executions = executor_stats.tier2_executions;
+        stats.fast_path_executions = executor_stats.fast_path_executions;
+        stats.promotions_performed = executor_stats.promotions_performed;
+        stats.specializations_performed = executor_stats.specializations_performed;
+        stats.avg_execution_time_ns = executor_stats.avg_execution_time_ns;
+        stats.total_contexts = executor_stats.cache_stats.total_contexts;
+        stats.total_versions = executor_stats.cache_stats.total_versions;
+    }
+    return stats;
+}
+
+void setSmallArrayThreshold(size_t threshold) {
+    if (g_executor && g_executor->adaptiveExecutor()) {
+        g_executor->adaptiveExecutor()->setSmallArrayThreshold(threshold);
+        spdlog::debug("Small array threshold set to {} elements", threshold);
+    }
+}
+
+size_t getSmallArrayThreshold() {
+    if (g_executor && g_executor->adaptiveExecutor()) {
+        return g_executor->adaptiveExecutor()->smallArrayThreshold();
+    }
+    return 10000;  // Default
+}
+
+bool saveAdaptiveProfiles() {
+    if (g_executor && g_executor->adaptiveExecutor()) {
+        return g_executor->adaptiveExecutor()->saveProfiles();
+    }
+    return false;
+}
+
+bool loadAdaptiveProfiles() {
+    if (g_executor && g_executor->adaptiveExecutor()) {
+        return g_executor->adaptiveExecutor()->loadProfiles();
+    }
+    return false;
 }
 
 // =============================================================================

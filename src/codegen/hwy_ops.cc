@@ -163,6 +163,8 @@ HWY_EXPORT(FmaSizedFloat32);
 HWY_EXPORT(FmaSizedFloat64);
 HWY_EXPORT(ReduceSumSizedFloat32);
 HWY_EXPORT(ReduceSumSizedFloat64);
+HWY_EXPORT(DotSizedFloat32);
+HWY_EXPORT(DotSizedFloat64);
 
 // Fused Kernels
 HWY_EXPORT(AddMulFloat32);
@@ -1011,6 +1013,8 @@ using hwy::DotFastFloat32HighwayDispatchTable;
 using hwy::DotFastFloat64HighwayDispatchTable;
 using hwy::DotFloat32HighwayDispatchTable;
 using hwy::DotFloat64HighwayDispatchTable;
+using hwy::DotSizedFloat32HighwayDispatchTable;
+using hwy::DotSizedFloat64HighwayDispatchTable;
 using hwy::EqFloat32HighwayDispatchTable;
 using hwy::EqFloat64HighwayDispatchTable;
 using hwy::EqInt32HighwayDispatchTable;
@@ -1864,12 +1868,18 @@ using hwy::ZeroExtendResizeBitCastUint8ToUint32HighwayDispatchTable;
 
 void Add(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
          size_t count) {
-    HWY_DYNAMIC_DISPATCH(AddFloat32)(out, a, b, count);
+    // Use size-specialized kernel with adaptive optimizations:
+    // - Small (<64): fully unrolled
+    // - Medium (64-4096): 4x unrolled
+    // - Large (>4096): 8x unrolled + prefetching
+    // - Very large (>8MB): streaming stores
+    HWY_DYNAMIC_DISPATCH(AddSizedFloat32)(a, b, out, count);
 }
 
 void Add(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
          size_t count) {
-    HWY_DYNAMIC_DISPATCH(AddFloat64)(out, a, b, count);
+    // Use size-specialized kernel
+    HWY_DYNAMIC_DISPATCH(AddSizedFloat64)(a, b, out, count);
 }
 
 void Add(int32_t* HWY_RESTRICT out, const int32_t* HWY_RESTRICT a, const int32_t* HWY_RESTRICT b,
@@ -1904,12 +1914,14 @@ void Sub(int64_t* HWY_RESTRICT out, const int64_t* HWY_RESTRICT a, const int64_t
 
 void Mul(float* HWY_RESTRICT out, const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
          size_t count) {
-    HWY_DYNAMIC_DISPATCH(MulFloat32)(out, a, b, count);
+    // Use size-specialized kernel
+    HWY_DYNAMIC_DISPATCH(MulSizedFloat32)(a, b, out, count);
 }
 
 void Mul(double* HWY_RESTRICT out, const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
          size_t count) {
-    HWY_DYNAMIC_DISPATCH(MulFloat64)(out, a, b, count);
+    // Use size-specialized kernel
+    HWY_DYNAMIC_DISPATCH(MulSizedFloat64)(a, b, out, count);
 }
 
 void Mul(int32_t* HWY_RESTRICT out, const int32_t* HWY_RESTRICT a, const int32_t* HWY_RESTRICT b,
@@ -2258,11 +2270,13 @@ int64_t ReduceMax(const int64_t* HWY_RESTRICT a, size_t count) {
 }
 
 float Dot(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b, size_t count) {
-    return HWY_DYNAMIC_DISPATCH(DotFloat32)(a, b, count);
+    // Use size-specialized version with 8 accumulators for large arrays
+    return HWY_DYNAMIC_DISPATCH(DotSizedFloat32)(a, b, count);
 }
 
 double Dot(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b, size_t count) {
-    return HWY_DYNAMIC_DISPATCH(DotFloat64)(a, b, count);
+    // Use size-specialized version with 8 accumulators for large arrays
+    return HWY_DYNAMIC_DISPATCH(DotSizedFloat64)(a, b, count);
 }
 
 // Optimized Reductions with Multiple Accumulators

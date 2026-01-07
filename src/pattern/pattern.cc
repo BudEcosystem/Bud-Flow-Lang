@@ -7,6 +7,7 @@
 #include "bud_flow_lang/bunch.h"
 
 #include <algorithm>
+#include <iterator>
 #include <sstream>
 
 namespace bud {
@@ -202,21 +203,77 @@ bool Pattern::isRegular() const {
 
 Pattern Pattern::compose(const Pattern& other) const {
     // Composing patterns: first apply this pattern, then other
-    // Result is indices of this pattern filtered by other pattern
+    // Example: stride(2).compose(stride(3)) means:
+    //   First: indices 0,2,4,6,8,10...
+    //   Then apply stride(3): indices 0,6,12... (every 3rd of the first result)
 
-    // For simplicity, convert to indices pattern
-    // In production, we'd optimize common compositions
-    return Pattern::indices(std::vector<size_t>());  // Placeholder
+    // Common case optimizations
+    if (type_ == PatternType::kStride && other.type_ == PatternType::kStride) {
+        // stride(a).compose(stride(b)) = stride(a*b, offset_*b)
+        return Pattern::stride(stride_ * other.stride_, offset_ * other.stride_ + other.offset_);
+    }
+
+    if (type_ == PatternType::kRange && other.type_ == PatternType::kRange) {
+        // Compose ranges
+        size_t new_start = range_start_ + other.range_start_ * range_step_;
+        size_t new_step = range_step_ * other.range_step_;
+        size_t count = other.countSelected(countSelected(SIZE_MAX));
+        size_t new_stop = new_start + count * new_step;
+        return Pattern::range(new_start, new_stop, new_step);
+    }
+
+    // General case: convert to indices
+    // Use a reasonable upper bound for data size
+    constexpr size_t LARGE_SIZE = 1000000;
+    auto first_indices = getSelectedIndices(LARGE_SIZE);
+    auto composed_indices = other.getSelectedIndices(first_indices.size());
+
+    std::vector<size_t> result;
+    result.reserve(composed_indices.size());
+    for (size_t idx : composed_indices) {
+        if (idx < first_indices.size()) {
+            result.push_back(first_indices[idx]);
+        }
+    }
+    return Pattern::indices(std::move(result));
 }
 
 Pattern Pattern::intersect(const Pattern& other) const {
     // Intersection: elements selected by both patterns
-    return Pattern::indices(std::vector<size_t>());  // Placeholder
+    // Use a reasonable upper bound for data size
+    constexpr size_t LARGE_SIZE = 1000000;
+
+    auto indices_a = getSelectedIndices(LARGE_SIZE);
+    auto indices_b = other.getSelectedIndices(LARGE_SIZE);
+
+    // Sort for efficient intersection
+    std::sort(indices_a.begin(), indices_a.end());
+    std::sort(indices_b.begin(), indices_b.end());
+
+    std::vector<size_t> result;
+    std::set_intersection(indices_a.begin(), indices_a.end(), indices_b.begin(), indices_b.end(),
+                          std::back_inserter(result));
+
+    return Pattern::indices(std::move(result));
 }
 
 Pattern Pattern::unite(const Pattern& other) const {
     // Union: elements selected by either pattern
-    return Pattern::indices(std::vector<size_t>());  // Placeholder
+    // Use a reasonable upper bound for data size
+    constexpr size_t LARGE_SIZE = 1000000;
+
+    auto indices_a = getSelectedIndices(LARGE_SIZE);
+    auto indices_b = other.getSelectedIndices(LARGE_SIZE);
+
+    // Sort for efficient union
+    std::sort(indices_a.begin(), indices_a.end());
+    std::sort(indices_b.begin(), indices_b.end());
+
+    std::vector<size_t> result;
+    std::set_union(indices_a.begin(), indices_a.end(), indices_b.begin(), indices_b.end(),
+                   std::back_inserter(result));
+
+    return Pattern::indices(std::move(result));
 }
 
 std::string Pattern::toString() const {

@@ -17,6 +17,7 @@
         #define HIGHWAY_HWY_BUD_OPS_INL_H_
     #endif
 
+    #include <hwy/cache_control.h>
     #include <hwy/contrib/math/math-inl.h>
     #include <hwy/highway.h>
 
@@ -9362,6 +9363,10 @@ constexpr size_t kMediumThreshold = 4096;
 // Prefetch distance in bytes (typically 2-4 cache lines ahead)
 constexpr size_t kPrefetchDistance = 256;
 
+// Streaming store threshold in bytes (use non-temporal stores for data > L3 cache)
+// Based on research: non-temporal stores improve bandwidth for data > ~8MB
+constexpr size_t kStreamingStoreThreshold = 8 * 1024 * 1024;  // 8MB
+
 // -----------------------------------------------------------------------------
 // AddSized - Size-specialized addition
 // -----------------------------------------------------------------------------
@@ -9494,6 +9499,74 @@ HWY_ATTR void AddSizedLargeFloat32(const float* HWY_RESTRICT a, const float* HWY
     }
 }
 
+// Streaming store version for very large arrays (> L3 cache)
+// Uses non-temporal stores to bypass cache hierarchy
+HWY_ATTR void AddStreamingFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                                  float* HWY_RESTRICT out, size_t count) {
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+    const size_t stride = 8 * N;
+    const size_t prefetch_elems = kPrefetchDistance / sizeof(float);
+
+    // Check if output is aligned for streaming stores
+    const bool aligned = (reinterpret_cast<uintptr_t>(out) % (N * sizeof(float))) == 0;
+
+    size_t i = 0;
+    if (aligned) {
+        // Use streaming stores for aligned data
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+            }
+
+            auto va0 = hn::LoadU(d, a + i);
+            auto va1 = hn::LoadU(d, a + i + N);
+            auto va2 = hn::LoadU(d, a + i + 2 * N);
+            auto va3 = hn::LoadU(d, a + i + 3 * N);
+            auto va4 = hn::LoadU(d, a + i + 4 * N);
+            auto va5 = hn::LoadU(d, a + i + 5 * N);
+            auto va6 = hn::LoadU(d, a + i + 6 * N);
+            auto va7 = hn::LoadU(d, a + i + 7 * N);
+
+            auto vb0 = hn::LoadU(d, b + i);
+            auto vb1 = hn::LoadU(d, b + i + N);
+            auto vb2 = hn::LoadU(d, b + i + 2 * N);
+            auto vb3 = hn::LoadU(d, b + i + 3 * N);
+            auto vb4 = hn::LoadU(d, b + i + 4 * N);
+            auto vb5 = hn::LoadU(d, b + i + 5 * N);
+            auto vb6 = hn::LoadU(d, b + i + 6 * N);
+            auto vb7 = hn::LoadU(d, b + i + 7 * N);
+
+            // Non-temporal stores - bypass cache
+            hn::Stream(hn::Add(va0, vb0), d, out + i);
+            hn::Stream(hn::Add(va1, vb1), d, out + i + N);
+            hn::Stream(hn::Add(va2, vb2), d, out + i + 2 * N);
+            hn::Stream(hn::Add(va3, vb3), d, out + i + 3 * N);
+            hn::Stream(hn::Add(va4, vb4), d, out + i + 4 * N);
+            hn::Stream(hn::Add(va5, vb5), d, out + i + 5 * N);
+            hn::Stream(hn::Add(va6, vb6), d, out + i + 6 * N);
+            hn::Stream(hn::Add(va7, vb7), d, out + i + 7 * N);
+        }
+        // Handle remaining with regular stores
+        for (; i + N <= count; i += N) {
+            auto va = hn::LoadU(d, a + i);
+            auto vb = hn::LoadU(d, b + i);
+            hn::Stream(hn::Add(va, vb), d, out + i);
+        }
+        // Ensure streaming stores are visible
+        ::hwy::FlushStream();
+    } else {
+        // Fall back to regular stores for unaligned data
+        AddSizedLargeFloat32(a, b, out, count);
+        return;
+    }
+    // Handle remainder with scalar
+    for (; i < count; ++i) {
+        out[i] = a[i] + b[i];
+    }
+}
+
 // Main dispatcher for AddSized float32
 HWY_ATTR void AddSizedFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
                               float* HWY_RESTRICT out, size_t count) {
@@ -9503,6 +9576,9 @@ HWY_ATTR void AddSizedFloat32(const float* HWY_RESTRICT a, const float* HWY_REST
         AddSizedSmallFloat32(a, b, out, count);
     } else if (count <= kMediumThreshold) {
         AddSizedMediumFloat32(a, b, out, count);
+    } else if (count * sizeof(float) > kStreamingStoreThreshold) {
+        // Use streaming stores for very large arrays
+        AddStreamingFloat32(a, b, out, count);
     } else {
         AddSizedLargeFloat32(a, b, out, count);
     }
@@ -10102,6 +10178,222 @@ HWY_ATTR double ReduceSumSizedFloat64(const double* HWY_RESTRICT a, size_t count
         double result = hn::ReduceSum(d, total);
         for (; i < count; ++i) {
             result += a[i];
+        }
+        return result;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// DotSized - Size-specialized dot product with 8 accumulators for large arrays
+// -----------------------------------------------------------------------------
+// Key optimization: 8 accumulators hide FMA latency (4 cycles) on modern CPUs
+// AVX-512 has 32 zmm registers, AVX2 has 16 ymm registers
+// 8 accumulators + 16 loads = 24 registers, fits well in AVX-512
+
+HWY_ATTR float DotSizedFloat32(const float* HWY_RESTRICT a, const float* HWY_RESTRICT b,
+                               size_t count) {
+    if (count == 0)
+        return 0.0f;
+
+    const hn::ScalableTag<float> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        // Small: single accumulator, minimal overhead
+        auto vsum = hn::Zero(d);
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            vsum = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), vsum);
+        }
+        float result = hn::ReduceSum(d, vsum);
+        // Masked tail handling - avoid scalar loop
+        if (const size_t remaining = count - i; remaining > 0) {
+            const auto mask = hn::FirstN(d, remaining);
+            const auto va = hn::MaskedLoad(mask, d, a + i);
+            const auto vb = hn::MaskedLoad(mask, d, b + i);
+            result += hn::ReduceSum(d, hn::IfThenElseZero(mask, hn::Mul(va, vb)));
+        }
+        return result;
+    } else if (count <= kMediumThreshold) {
+        // Medium: 4 accumulators
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+            sum1 = hn::MulAdd(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N), sum1);
+            sum2 = hn::MulAdd(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N), sum2);
+            sum3 = hn::MulAdd(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N), sum3);
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+        }
+        const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+        float result = hn::ReduceSum(d, total);
+        // Masked tail handling
+        if (const size_t remaining = count - i; remaining > 0) {
+            const auto mask = hn::FirstN(d, remaining);
+            const auto va = hn::MaskedLoad(mask, d, a + i);
+            const auto vb = hn::MaskedLoad(mask, d, b + i);
+            result += hn::ReduceSum(d, hn::IfThenElseZero(mask, hn::Mul(va, vb)));
+        }
+        return result;
+    } else {
+        // Large: 8 accumulators + prefetch for maximum throughput
+        // This fully saturates 2 FMA units with 4-cycle latency
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        auto sum4 = hn::Zero(d);
+        auto sum5 = hn::Zero(d);
+        auto sum6 = hn::Zero(d);
+        auto sum7 = hn::Zero(d);
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(float);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            // Prefetch both input arrays
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+            }
+            // 8 FMAs per iteration - hides 4-cycle FMA latency
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+            sum1 = hn::MulAdd(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N), sum1);
+            sum2 = hn::MulAdd(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N), sum2);
+            sum3 = hn::MulAdd(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N), sum3);
+            sum4 = hn::MulAdd(hn::LoadU(d, a + i + 4 * N), hn::LoadU(d, b + i + 4 * N), sum4);
+            sum5 = hn::MulAdd(hn::LoadU(d, a + i + 5 * N), hn::LoadU(d, b + i + 5 * N), sum5);
+            sum6 = hn::MulAdd(hn::LoadU(d, a + i + 6 * N), hn::LoadU(d, b + i + 6 * N), sum6);
+            sum7 = hn::MulAdd(hn::LoadU(d, a + i + 7 * N), hn::LoadU(d, b + i + 7 * N), sum7);
+        }
+        // Handle remaining with 4x
+        const size_t stride4 = 4 * N;
+        for (; i + stride4 <= count; i += stride4) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+            sum1 = hn::MulAdd(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N), sum1);
+            sum2 = hn::MulAdd(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N), sum2);
+            sum3 = hn::MulAdd(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N), sum3);
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+        }
+        // Combine all 8 accumulators
+        const auto total = hn::Add(hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3)),
+                                   hn::Add(hn::Add(sum4, sum5), hn::Add(sum6, sum7)));
+        float result = hn::ReduceSum(d, total);
+        // Masked tail handling
+        if (const size_t remaining = count - i; remaining > 0) {
+            const auto mask = hn::FirstN(d, remaining);
+            const auto va = hn::MaskedLoad(mask, d, a + i);
+            const auto vb = hn::MaskedLoad(mask, d, b + i);
+            result += hn::ReduceSum(d, hn::IfThenElseZero(mask, hn::Mul(va, vb)));
+        }
+        return result;
+    }
+}
+
+HWY_ATTR double DotSizedFloat64(const double* HWY_RESTRICT a, const double* HWY_RESTRICT b,
+                                size_t count) {
+    if (count == 0)
+        return 0.0;
+
+    const hn::ScalableTag<double> d;
+    const size_t N = hn::Lanes(d);
+
+    if (count < kSmallThreshold) {
+        // Small: single accumulator
+        auto vsum = hn::Zero(d);
+        size_t i = 0;
+        for (; i + N <= count; i += N) {
+            vsum = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), vsum);
+        }
+        double result = hn::ReduceSum(d, vsum);
+        // Masked tail handling
+        if (const size_t remaining = count - i; remaining > 0) {
+            const auto mask = hn::FirstN(d, remaining);
+            const auto va = hn::MaskedLoad(mask, d, a + i);
+            const auto vb = hn::MaskedLoad(mask, d, b + i);
+            result += hn::ReduceSum(d, hn::IfThenElseZero(mask, hn::Mul(va, vb)));
+        }
+        return result;
+    } else if (count <= kMediumThreshold) {
+        // Medium: 4 accumulators
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        const size_t stride = 4 * N;
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+            sum1 = hn::MulAdd(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N), sum1);
+            sum2 = hn::MulAdd(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N), sum2);
+            sum3 = hn::MulAdd(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N), sum3);
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+        }
+        const auto total = hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3));
+        double result = hn::ReduceSum(d, total);
+        // Masked tail handling
+        if (const size_t remaining = count - i; remaining > 0) {
+            const auto mask = hn::FirstN(d, remaining);
+            const auto va = hn::MaskedLoad(mask, d, a + i);
+            const auto vb = hn::MaskedLoad(mask, d, b + i);
+            result += hn::ReduceSum(d, hn::IfThenElseZero(mask, hn::Mul(va, vb)));
+        }
+        return result;
+    } else {
+        // Large: 8 accumulators + prefetch
+        auto sum0 = hn::Zero(d);
+        auto sum1 = hn::Zero(d);
+        auto sum2 = hn::Zero(d);
+        auto sum3 = hn::Zero(d);
+        auto sum4 = hn::Zero(d);
+        auto sum5 = hn::Zero(d);
+        auto sum6 = hn::Zero(d);
+        auto sum7 = hn::Zero(d);
+        const size_t stride = 8 * N;
+        const size_t prefetch_elems = kPrefetchDistance / sizeof(double);
+        size_t i = 0;
+        for (; i + stride <= count; i += stride) {
+            if (i + stride + prefetch_elems <= count) {
+                __builtin_prefetch(a + i + stride + prefetch_elems, 0, 3);
+                __builtin_prefetch(b + i + stride + prefetch_elems, 0, 3);
+            }
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+            sum1 = hn::MulAdd(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N), sum1);
+            sum2 = hn::MulAdd(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N), sum2);
+            sum3 = hn::MulAdd(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N), sum3);
+            sum4 = hn::MulAdd(hn::LoadU(d, a + i + 4 * N), hn::LoadU(d, b + i + 4 * N), sum4);
+            sum5 = hn::MulAdd(hn::LoadU(d, a + i + 5 * N), hn::LoadU(d, b + i + 5 * N), sum5);
+            sum6 = hn::MulAdd(hn::LoadU(d, a + i + 6 * N), hn::LoadU(d, b + i + 6 * N), sum6);
+            sum7 = hn::MulAdd(hn::LoadU(d, a + i + 7 * N), hn::LoadU(d, b + i + 7 * N), sum7);
+        }
+        const size_t stride4 = 4 * N;
+        for (; i + stride4 <= count; i += stride4) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+            sum1 = hn::MulAdd(hn::LoadU(d, a + i + N), hn::LoadU(d, b + i + N), sum1);
+            sum2 = hn::MulAdd(hn::LoadU(d, a + i + 2 * N), hn::LoadU(d, b + i + 2 * N), sum2);
+            sum3 = hn::MulAdd(hn::LoadU(d, a + i + 3 * N), hn::LoadU(d, b + i + 3 * N), sum3);
+        }
+        for (; i + N <= count; i += N) {
+            sum0 = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), sum0);
+        }
+        const auto total = hn::Add(hn::Add(hn::Add(sum0, sum1), hn::Add(sum2, sum3)),
+                                   hn::Add(hn::Add(sum4, sum5), hn::Add(sum6, sum7)));
+        double result = hn::ReduceSum(d, total);
+        // Masked tail handling
+        if (const size_t remaining = count - i; remaining > 0) {
+            const auto mask = hn::FirstN(d, remaining);
+            const auto va = hn::MaskedLoad(mask, d, a + i);
+            const auto vb = hn::MaskedLoad(mask, d, b + i);
+            result += hn::ReduceSum(d, hn::IfThenElseZero(mask, hn::Mul(va, vb)));
         }
         return result;
     }

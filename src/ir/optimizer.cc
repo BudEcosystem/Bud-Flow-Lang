@@ -683,7 +683,10 @@ class LoopInvariantCodeMotionPass {
             // or are themselves loop-invariant
             std::unordered_set<uint32_t> invariant_ids;
             bool changed = true;
-            while (changed) {
+            constexpr size_t kMaxLICMIterations = 100;
+            size_t licm_iterations = 0;
+            while (changed && licm_iterations < kMaxLICMIterations) {
+                ++licm_iterations;
                 changed = false;
                 for (uint32_t id : loop_body_ids) {
                     if (invariant_ids.count(id))
@@ -926,15 +929,18 @@ class EscapeAnalysisPass {
             return 0;  // No allocations to analyze
         }
 
+        // Pre-build use map once for O(N+E) analysis instead of O(N²)
+        UseMap use_map = buildUseMap(builder);
+
         // Step 2: For each allocation, check if it escapes
         for (auto* alloc : alloc_nodes) {
-            EscapeState state = analyzeEscape(builder, alloc, output);
+            EscapeState state = analyzeEscape(builder, alloc, output, use_map);
 
             switch (state) {
             case EscapeState::kNoEscape:
                 // Allocation doesn't escape - can be completely eliminated
                 // if it has no uses, or stack-allocated otherwise
-                if (!hasNonTrivialUses(builder, alloc->id())) {
+                if (!hasNonTrivialUses(use_map, alloc->id())) {
                     alloc->markDead();
                     ++eliminated_count;
                     spdlog::debug("EscapeAnalysis: Eliminated unused allocation %{}",
@@ -976,7 +982,23 @@ class EscapeAnalysisPass {
   private:
     enum class EscapeState { kNoEscape, kArgEscape, kGlobalEscape };
 
-    EscapeState analyzeEscape(const IRBuilder& builder, const IRNode* alloc, ValueId output) {
+    // Pre-built use map for O(N+E) escape analysis instead of O(N²)
+    using UseMap = std::unordered_map<uint32_t, std::vector<const IRNode*>>;
+
+    UseMap buildUseMap(const IRBuilder& builder) {
+        UseMap use_map;
+        for (const auto* node : builder.nodes()) {
+            if (!node || node->isDead())
+                continue;
+            for (const auto& operand : node->operands()) {
+                use_map[operand.id].push_back(node);
+            }
+        }
+        return use_map;
+    }
+
+    EscapeState analyzeEscape(const IRBuilder& builder, const IRNode* alloc, ValueId output,
+                              const UseMap& use_map) {
         // Track all uses of the allocation
         std::unordered_set<uint32_t> visited;
         std::vector<ValueId> worklist;
@@ -984,7 +1006,12 @@ class EscapeAnalysisPass {
 
         EscapeState state = EscapeState::kNoEscape;
 
-        while (!worklist.empty()) {
+        // Safety limit to prevent infinite loops on pathological graphs
+        constexpr size_t kMaxWorklistIterations = 10000;
+        size_t iterations = 0;
+
+        while (!worklist.empty() && iterations < kMaxWorklistIterations) {
+            ++iterations;
             ValueId id = worklist.back();
             worklist.pop_back();
 
@@ -992,20 +1019,13 @@ class EscapeAnalysisPass {
                 continue;
             visited.insert(id.id);
 
-            // Check all nodes that use this value
-            for (const auto* node : builder.nodes()) {
+            // Use pre-built use map for O(uses) lookup instead of O(N) scan
+            auto it = use_map.find(id.id);
+            if (it == use_map.end())
+                continue;
+
+            for (const auto* node : it->second) {
                 if (!node || node->isDead())
-                    continue;
-
-                bool uses_value = false;
-                for (const auto& operand : node->operands()) {
-                    if (operand.id == id.id) {
-                        uses_value = true;
-                        break;
-                    }
-                }
-
-                if (!uses_value)
                     continue;
 
                 // Check escape conditions
@@ -1013,7 +1033,7 @@ class EscapeAnalysisPass {
                 case OpCode::kStore:
                     // Storing TO the allocation is fine, storing the allocation
                     // pointer itself to another location causes escape
-                    if (node->operand(1).id == id.id) {
+                    if (node->numOperands() > 1 && node->operand(1).id == id.id) {
                         // Value being stored is our allocation - it escapes
                         state = std::max(state, EscapeState::kGlobalEscape);
                     }
@@ -1043,6 +1063,12 @@ class EscapeAnalysisPass {
             }
         }
 
+        // Conservative fallback if we hit the iteration limit
+        if (iterations >= kMaxWorklistIterations) {
+            spdlog::warn("EscapeAnalysis: Hit iteration limit for allocation %{}", alloc->id().id);
+            return EscapeState::kGlobalEscape;
+        }
+
         // Check if allocation reaches output
         if (visited.count(output.id)) {
             state = std::max(state, EscapeState::kGlobalEscape);
@@ -1051,14 +1077,14 @@ class EscapeAnalysisPass {
         return state;
     }
 
-    bool hasNonTrivialUses(const IRBuilder& builder, ValueId alloc_id) {
-        for (const auto* node : builder.nodes()) {
-            if (!node || node->isDead())
-                continue;
-            for (const auto& operand : node->operands()) {
-                if (operand.id == alloc_id.id) {
-                    return true;
-                }
+    bool hasNonTrivialUses(const UseMap& use_map, ValueId alloc_id) {
+        auto it = use_map.find(alloc_id.id);
+        if (it == use_map.end())
+            return false;
+        // Check if any uses are still alive
+        for (const auto* node : it->second) {
+            if (node && !node->isDead()) {
+                return true;
             }
         }
         return false;

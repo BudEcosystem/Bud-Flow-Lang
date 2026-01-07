@@ -514,6 +514,113 @@ TEST_F(SizeSpecializedKernelsTest, AddSizedInt32_AllTiers) {
     }
 }
 
+// =============================================================================
+// DotSized tests - 8-accumulator with masked tail handling
+// =============================================================================
+
+TEST_F(SizeSpecializedKernelsTest, DotSized_Float32_AllTiers) {
+    // Test all size tiers: small, medium, large
+    for (size_t count : {16, 32, 63, 64, 65, 256, 1000, 4096, 4097, 10000, 100000}) {
+        auto a = GenerateRandomFloats(count);
+        auto b = GenerateRandomFloats(count);
+
+        // Reference computation
+        float expected = 0.0f;
+        for (size_t i = 0; i < count; ++i) {
+            expected += a[i] * b[i];
+        }
+
+        float result = Dot(a.data(), b.data(), count);
+
+        // Use relative tolerance for floating point
+        float rel_error = std::abs(result - expected) / std::max(std::abs(expected), 1.0f);
+        ASSERT_LT(rel_error, 1e-4f) << "DotSized float32 failed for size " << count
+                                    << " expected=" << expected << " got=" << result;
+    }
+}
+
+TEST_F(SizeSpecializedKernelsTest, DotSized_Float64_AllTiers) {
+    // Test all size tiers for double precision
+    for (size_t count : {16, 63, 64, 65, 256, 4096, 4097, 100000}) {
+        auto a = GenerateRandomDoubles(count);
+        auto b = GenerateRandomDoubles(count);
+
+        double expected = 0.0;
+        for (size_t i = 0; i < count; ++i) {
+            expected += a[i] * b[i];
+        }
+
+        double result = Dot(a.data(), b.data(), count);
+
+        double rel_error = std::abs(result - expected) / std::max(std::abs(expected), 1.0);
+        ASSERT_LT(rel_error, 1e-10) << "DotSized float64 failed for size " << count
+                                    << " expected=" << expected << " got=" << result;
+    }
+}
+
+TEST_F(SizeSpecializedKernelsTest, DotSized_MaskedTailHandling) {
+    // Test odd sizes that exercise masked tail handling
+    // These sizes don't align with SIMD vector width
+    for (size_t count : {1, 2, 3, 5, 7, 9, 13, 17, 31, 33, 127, 129, 255, 257}) {
+        auto a = GenerateRandomFloats(count);
+        auto b = GenerateRandomFloats(count);
+
+        float expected = 0.0f;
+        for (size_t i = 0; i < count; ++i) {
+            expected += a[i] * b[i];
+        }
+
+        float result = Dot(a.data(), b.data(), count);
+
+        float rel_error = std::abs(result - expected) / std::max(std::abs(expected), 1.0f);
+        ASSERT_LT(rel_error, 1e-4f) << "DotSized masked tail failed for size " << count;
+    }
+}
+
+TEST_F(SizeSpecializedKernelsTest, DotSized_EdgeCases) {
+    // Empty array
+    std::vector<float> empty;
+    EXPECT_EQ(Dot(empty.data(), empty.data(), 0), 0.0f);
+
+    // Single element
+    std::vector<float> single_a = {2.0f};
+    std::vector<float> single_b = {3.0f};
+    EXPECT_FLOAT_EQ(Dot(single_a.data(), single_b.data(), 1), 6.0f);
+
+    // All zeros
+    std::vector<float> zeros(100, 0.0f);
+    EXPECT_EQ(Dot(zeros.data(), zeros.data(), 100), 0.0f);
+
+    // Ones
+    std::vector<float> ones(100, 1.0f);
+    EXPECT_FLOAT_EQ(Dot(ones.data(), ones.data(), 100), 100.0f);
+}
+
+// =============================================================================
+// Streaming store tests for very large arrays
+// =============================================================================
+
+TEST_F(SizeSpecializedKernelsTest, AddSized_StreamingStores_VeryLarge) {
+    // Test array size that triggers streaming stores (> 8MB = 2M floats)
+    const size_t count = 3 * 1024 * 1024;  // 12MB of floats
+
+    auto a = GenerateRandomFloats(count);
+    auto b = GenerateRandomFloats(count);
+    std::vector<float> result(count);
+    std::vector<float> expected(count);
+
+    for (size_t i = 0; i < count; ++i) {
+        expected[i] = a[i] + b[i];
+    }
+
+    AddSized(a.data(), b.data(), result.data(), count);
+
+    // Check correctness
+    for (size_t i = 0; i < count; i += count / 100) {  // Sample check
+        ASSERT_FLOAT_EQ(result[i], expected[i]) << "AddSized streaming store failed at index " << i;
+    }
+}
+
 }  // namespace
 }  // namespace simd
 }  // namespace bud
