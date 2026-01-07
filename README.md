@@ -158,7 +158,7 @@ print(f"Cache hit rate: {stats['cache_hit_rate']:.1%}")
 Flow Lang implements a sophisticated multi-stage compilation pipeline that transforms Python code into optimized native SIMD instructions:
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4f46e5', 'primaryTextColor': '#fff', 'primaryBorderColor': '#4338ca', 'lineColor': '#6366f1', 'secondaryColor': '#818cf8', 'tertiaryColor': '#c7d2fe', 'background': '#transparent', 'mainBkg': '#transparent', 'nodeBorder': '#4338ca', 'clusterBkg': '#f5f3ff', 'clusterBorder': '#a5b4fc', 'titleColor': '#1e1b4b', 'edgeLabelBackground': '#transparent'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4f46e5', 'primaryTextColor': '#fff', 'primaryBorderColor': '#4338ca', 'lineColor': '#6366f1', 'secondaryColor': '#818cf8', 'tertiaryColor': '#c7d2fe', 'nodeBorder': '#4338ca', 'clusterBkg': '#f5f3ff', 'clusterBorder': '#a5b4fc', 'titleColor': '#1e1b4b'}}}%%
 flowchart TB
     subgraph USER["<b>USER CODE</b>"]
         direction LR
