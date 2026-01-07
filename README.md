@@ -419,13 +419,15 @@ The PGO system collects runtime profiles and specializes hot paths:
 Benchmarked on Intel Core i7-10700KF @ 3.80GHz with AVX2 (256-bit SIMD):
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#7c3aed', 'primaryTextColor': '#fff'}}}%%
+%%{init: {'theme': 'default', 'themeVariables': { 'xyChart': {'plotColorPalette': '#22c55e, #16a34a, #15803d, #166534, #14532d, #052e16'}}}}%%
 xychart-beta
     title "Flow Lang Speedup vs NumPy (higher is better)"
     x-axis ["SIN", "SUM", "FMA", "EXP", "MUL", "ADD"]
     y-axis "Speedup (x)" 0 --> 4
     bar [2.93, 2.82, 1.93, 1.55, 1.36, 1.29]
 ```
+
+> **Performance Highlights:** SIN operations are **2.93x faster**, SUM reductions **2.82x faster**, and FMA operations **1.93x faster** than NumPy.
 
 | Operation | vs NumPy | vs JAX | Array Size | Notes |
 |-----------|:--------:|:------:|:----------:|-------|
